@@ -276,8 +276,8 @@ async function runSpots(mode) {
         .on('click', () => pick(s.lat, s.lng, null, `<b>Score ${s.score}</b> · Bortle ${s.zone.bortle} · Wolken ${s.cloud != null ? Math.round(s.cloud) : '–'} %`)).addTo(spotLayer));
     } else {
       const res = await popularSpots({ center: loc, radiusKm, onProgress: status });
-      if (!res.length) { status('Keine passenden Orte in OpenStreetMap gefunden – größeren Umkreis wählen.'); return; }
-      status(`${res.length} Orte gefunden · die ${Math.min(15, res.length)} besten für Fotos`);
+      if (!res.length) { status(res.partial ? `Keine Orte gefunden (${res.partial} konnten nicht geladen werden) – bitte erneut versuchen.` : 'Keine passenden Orte in OpenStreetMap gefunden – größeren Umkreis wählen.'); return; }
+      status(`${res.length} ${res.length === 1 ? 'Ort' : 'Orte'} gefunden${res.length > 1 ? ` · die ${Math.min(15, res.length)} besten für Fotos` : ''}${res.partial ? ` · ${res.partial} gerade nicht verfügbar` : ''}`);
       res.slice(0, 15).forEach((s, i) => addSpot(s, i, {
         icon: SPOT_TYPES[s.type].icon,
         line: `${SPOT_TYPES[s.type].label}${s.zone ? ` · Bortle ${s.zone.bortle}` : ''}${s.ele ? ` · ${Math.round(s.ele)} m` : ''}`,
@@ -288,7 +288,8 @@ async function runSpots(mode) {
     pts.push(window.L.latLng(loc.lat, loc.lng));
     if (pts.length > 1) map.fitBounds(window.L.latLngBounds(pts).pad(0.15));
   } catch (e) {
-    status(`Fehler: ${e.message}`);
+    $('#spotsStatus').innerHTML = `<span class="warntxt">${esc(e.message)}</span> <button class="link" id="spotsRetry">Erneut versuchen</button>`;
+    $('#spotsRetry').onclick = () => runSpots(mode);
   } finally {
     $('#spotsGo').disabled = false;
   }
