@@ -48,14 +48,14 @@ export async function fetchForecast(lat, lng) {
 export async function fetchUpperWinds(lat, lng) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     `&hourly=wind_speed_250hPa,wind_speed_500hPa,wind_speed_850hPa&timeformat=unixtime&forecast_days=8&wind_speed_unit=kmh`;
-  const j = await getJSON(url);
+  const j = await getJSONRetry(url, 2);
   return toRows(j.hourly);
 }
 
 export async function fetchAirQuality(lat, lng) {
   const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     `&hourly=aerosol_optical_depth,dust,pm2_5&timeformat=unixtime&forecast_days=5`;
-  const j = await getJSON(url);
+  const j = await getJSONRetry(url, 2);
   return toRows(j.hourly);
 }
 
