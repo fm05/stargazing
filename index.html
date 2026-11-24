@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sternenhimmel</title>
+  <meta name="description" content="Wie gut sind die Bedingungen heute Nacht für Sternen- und Milchstraßenfotografie an deinem Standort?">
+  <meta name="theme-color" content="#070b16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sternenhimmel">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="redfilter" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <button class="loc" id="locBtn" aria-label="Standort ändern">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z"/></svg>
+      <span id="locName">Standort…</span>
+    </button>
+    <div class="topactions">
+      <button class="iconbtn" id="redBtn" aria-label="Rotlicht-Modus" title="Rotlicht-Modus (schont Dunkeladaption)">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5Zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+      </button>
+      <button class="iconbtn" id="refreshBtn" aria-label="Aktualisieren" title="Aktualisieren">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M17.6 6.4A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4l-2.4 2.4Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Heute Nacht -->
+    <section class="view active" id="view-tonight" aria-label="Heute Nacht">
+      <div id="installHint" class="card hint" hidden>
+        <strong>Als App installieren:</strong> In Safari unten auf <em>Teilen</em> <span aria-hidden="true">⬆︎</span> tippen und
+        <em>„Zum Home-Bildschirm“</em> wählen.
+        <button class="link" id="installClose">Ausblenden</button>
+      </div>
+      <div id="status" class="status" role="status"></div>
+      <div id="tonight"></div>
+    </section>
+
+    <!-- 7 Nächte -->
+    <section class="view" id="view-week" aria-label="Die nächsten Nächte">
+      <h1 class="h1">Die nächsten 7 Nächte</h1>
+      <p class="muted small">Tippe auf eine Nacht, um alle Details zu sehen.</p>
+      <div id="week"></div>
+      <div id="mwSeason"></div>
+    </section>
+
+    <!-- Kamera -->
+    <section class="view" id="view-camera" aria-label="Kamera">
+      <h1 class="h1">Kamera-Rechner</h1>
+      <div class="card">
+        <div class="form">
+          <label>Sensor
+            <select id="camCrop">
+              <option value="1">Vollformat (Crop 1,0)</option>
+              <option value="1.5">APS-C Nikon/Sony/Fuji (1,5)</option>
+              <option value="1.6">APS-C Canon (1,6)</option>
+              <option value="2">Micro Four Thirds (2,0)</option>
+              <option value="2.7">1-Zoll (2,7)</option>
+            </select>
+          </label>
+          <label>Megapixel <input id="camMP" type="number" inputmode="decimal" min="1" max="200" step="1"></label>
+          <label>Brennweite (mm) <input id="camFocal" type="number" inputmode="decimal" min="4" max="1200" step="1"></label>
+          <label>Blende (f/) <input id="camAperture" type="number" inputmode="decimal" min="0.95" max="22" step="0.1"></label>
+        </div>
+      </div>
+      <div id="camResult"></div>
+    </section>
+
+    <!-- Einstellungen -->
+    <section class="view" id="view-settings" aria-label="Einstellungen">
+      <h1 class="h1">Einstellungen</h1>
+
+      <div class="card">
+        <h2 class="h2">Standort</h2>
+        <p class="muted small" id="locInfo"></p>
+        <button class="btn primary" id="gpsBtn">📍 Aktuellen Standort verwenden</button>
+        <form id="searchForm" class="search" autocomplete="off">
+          <input id="searchInput" type="search" placeholder="Ort suchen, z. B. Feldberg" aria-label="Ort suchen">
+          <button class="btn" type="submit">Suchen</button>
+        </form>
+        <ul id="searchResults" class="results"></ul>
+        <details>
+          <summary>Koordinaten manuell eingeben</summary>
+          <div class="form two">
+            <label>Breite <input id="manLat" type="number" step="0.0001" inputmode="decimal" placeholder="52.52"></label>
+            <label>Länge <input id="manLng" type="number" step="0.0001" inputmode="decimal" placeholder="13.40"></label>
+          </div>
+          <button class="btn" id="manBtn">Übernehmen</button>
+        </details>
+        <h3 class="h3">Gespeicherte Orte</h3>
+        <ul id="favList" class="results"></ul>
+        <button class="btn" id="favAdd">☆ Aktuellen Ort merken</button>
+      </div>
+
+      <div class="card">
+        <h2 class="h2">Lichtverschmutzung (Bortle-Skala)</h2>
+        <p class="muted small">Die Himmelshelligkeit lässt sich nicht automatisch abrufen. Schau auf der Karte nach und stelle die Klasse für deinen Fotospot ein. Sie wird pro Ort gespeichert.</p>
+        <select id="bortle"></select>
+        <p><a id="lpLink" href="https://www.lightpollutionmap.info" target="_blank" rel="noopener">Lichtverschmutzungskarte für diesen Ort öffnen ↗</a></p>
+        <table class="bortle-table">
+          <tr><th>Klasse</th><th>Himmel</th><th>Milchstraße</th></tr>
+          <tr><td>1–2</td><td>Sehr dunkel, Zodiakallicht</td><td>Strukturreich, wirft Schatten</td></tr>
+          <tr><td>3–4</td><td>Ländlich</td><td>Gut sichtbar</td></tr>
+          <tr><td>5–6</td><td>Vorort</td><td>Schwach, nur im Zenit</td></tr>
+          <tr><td>7–9</td><td>Stadt</td><td>Nicht sichtbar</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2 class="h2">Anzeige</h2>
+        <label class="switch"><input type="checkbox" id="redToggle"> Rotlicht-Modus (Nachtsicht)</label>
+      </div>
+
+      <div class="card">
+        <h2 class="h2">So wird bewertet</h2>
+        <p class="small">Für jede Nachtstunde werden Teilfaktoren zwischen 0 und 1 berechnet und multipliziert. Der Wert der Nacht ist das beste 2-Stunden-Fenster.</p>
+        <ul class="small list">
+          <li><b>Dunkelheit</b> – Sonnenstand (astronomische Nacht = 100 %)</li>
+          <li><b>Wolken</b> – tiefe, mittlere und hohe Wolken getrennt gewichtet</li>
+          <li><b>Niederschlag</b> – Wahrscheinlichkeit und Menge</li>
+          <li><b>Mond</b> – Beleuchtung × Höhe über dem Horizont</li>
+          <li><b>Transparenz</b> – Aerosole/Staub (AOD) und 7Timer-Transparenz</li>
+          <li><b>Sichtweite &amp; Luftfeuchte</b> – Dunst</li>
+          <li><b>Wind &amp; Böen</b> – Verwacklungsgefahr auf dem Stativ</li>
+          <li><b>Lichtverschmutzung</b> – Bortle-Klasse</li>
+          <li><b>Milchstraßen-Modus</b> zusätzlich: Höhe des galaktischen Zentrums</li>
+        </ul>
+        <p class="small muted">Zusätzlich angezeigt: Seeing, Jetstream, Taupunkt-Abstand (Beschlagen), Temperatur, Kp-Index (Polarlicht), Meteorströme, Neumond.</p>
+        <p class="small muted">Daten: Open-Meteo, 7Timer!, NOAA SWPC, BigDataCloud. Astronomie wird lokal berechnet.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <button class="tab active" data-view="tonight"><span aria-hidden="true">✦</span>Nacht</button>
+    <button class="tab" data-view="week"><span aria-hidden="true">▦</span>7 Nächte</button>
+    <button class="tab" data-view="camera"><span aria-hidden="true">◉</span>Kamera</button>
+    <button class="tab" data-view="settings"><span aria-hidden="true">⚙︎</span>Optionen</button>
+  </nav>
+
+  <div id="tip" class="tip" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
