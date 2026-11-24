@@ -25,7 +25,11 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: pan-x pan-y; }
+/* App-Gefühl: kein Zoom per Doppeltipp, keine Textauswahl/Lupe bei langem Drücken */
+body, button, .tile, .card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+button, a, input, select, label, summary { touch-action: manipulation; }
 body {
   margin: 0;
   background: var(--bg);
@@ -211,6 +215,15 @@ summary { cursor: pointer; color: var(--accent); font-size: 14px; }
 .bortle-table { width: 100%; font-size: 12.5px; border-collapse: collapse; margin-top: 6px; }
 .bortle-table td, .bortle-table th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; }
 .bortle-table th { color: var(--muted); font-weight: 500; }
+
+/* Standort-Hilfe & Willkommen */
+.geohelp { background: #2a1d0c; border: 1px solid #5a3f12; color: #f3dfbd; border-radius: 12px; padding: 12px 14px; font-size: 13.5px; margin: 0 0 12px; }
+.geohelp ol { padding-left: 18px; margin: 8px 0 0; }
+.geohelp li { margin: 4px 0; }
+.welcome { text-align: center; padding: 28px 18px; }
+.welcome-icon { font-size: 44px; color: var(--accent); }
+.welcome .geohelp { text-align: left; margin-top: 12px; }
+.btn.wide { width: 100%; }
 
 /* Tableiste */
 .tabbar {

@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Sternenhimmel</title>
   <meta name="description" content="Wie gut sind die Bedingungen heute Nacht für Sternen- und Milchstraßenfotografie an deinem Standort?">
   <meta name="theme-color" content="#070b16">
@@ -83,6 +83,7 @@
         <h2 class="h2">Standort</h2>
         <p class="muted small" id="locInfo"></p>
         <button class="btn primary" id="gpsBtn">📍 Aktuellen Standort verwenden</button>
+        <div id="geoHelp" class="geohelp" hidden></div>
         <form id="searchForm" class="search" autocomplete="off">
           <input id="searchInput" type="search" placeholder="Ort suchen, z. B. Feldberg" aria-label="Ort suchen">
           <button class="btn" type="submit">Suchen</button>

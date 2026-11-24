@@ -48,7 +48,17 @@ const fmtDur = (min) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)
 // ---------- Start ----------
 init();
 
+function blockZoom() {
+  // iOS Safari ignoriert user-scalable=no teilweise – Pinch- und Doppeltipp-Zoom daher zusätzlich per Script verhindern
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  }
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+}
+
 function init() {
+  blockZoom();
   setupTabs();
   setupSettings();
   setupCamera();
@@ -72,14 +82,18 @@ function init() {
       render();
     }
     load(false);
+    if (state.loc.gps) refreshGPSQuietly();
   } else {
-    setStatus('Standort wird ermittelt …');
-    useGPS(true);
+    renderWelcome();
+    // Nur automatisch orten, wenn die Erlaubnis schon erteilt ist – sonst per Button (iOS fragt zuverlässiger nach einem Tippen)
+    geoPermission().then((st) => { if (st === 'granted') useGPS(); });
   }
 
   // Bei Rückkehr in die App aktualisieren, wenn Daten älter als 30 min
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.data && Date.now() - state.data.fetched > 30 * 60000) load(false);
+    if (document.visibilityState !== 'visible') return;
+    if (state.loc?.gps) refreshGPSQuietly();
+    if (state.data && Date.now() - state.data.fetched > 30 * 60000) load(false);
   });
 }
 
@@ -91,25 +105,135 @@ function setStatus(msg, isErr = false) {
 }
 
 // ---------- Standort ----------
-function useGPS(initial = false) {
-  if (!navigator.geolocation) { setStatus('Dein Browser unterstützt keine Ortung. Bitte Ort in den Optionen suchen.', true); return; }
-  setStatus('Standort wird ermittelt …');
-  navigator.geolocation.getCurrentPosition(
-    async (p) => {
-      const loc = { lat: p.coords.latitude, lng: p.coords.longitude, name: 'Mein Standort', gps: true, alt: p.coords.altitude };
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+
+async function geoPermission() {
+  try {
+    if (!navigator.permissions?.query) return 'unknown';
+    return (await navigator.permissions.query({ name: 'geolocation' })).state; // granted | prompt | denied
+  } catch { return 'unknown'; }
+}
+
+function getPosition(opts) {
+  return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, opts));
+}
+
+/** Mehrstufige Ortung: schnell/ungenau → genau → watchPosition als letzter Versuch. */
+async function locate() {
+  if (!navigator.geolocation) throw Object.assign(new Error('unsupported'), { code: 0 });
+  try {
+    return await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 30 * 60000 });
+  } catch (e) {
+    if (e.code === 1) throw e; // verweigert – nicht erneut versuchen
+  }
+  try {
+    return await getPosition({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  } catch (e) {
+    if (e.code === 1) throw e;
+  }
+  return new Promise((resolve, reject) => {
+    let id = null;
+    const timer = setTimeout(() => { navigator.geolocation.clearWatch(id); reject(Object.assign(new Error('timeout'), { code: 3 })); }, 20000);
+    id = navigator.geolocation.watchPosition(
+      (p) => { clearTimeout(timer); navigator.geolocation.clearWatch(id); resolve(p); },
+      (e) => { if (e.code === 1) { clearTimeout(timer); navigator.geolocation.clearWatch(id); reject(e); } },
+      { enableHighAccuracy: true, maximumAge: 0 }
+    );
+  });
+}
+
+let locating = false;
+async function useGPS() {
+  if (locating) return;
+  locating = true;
+  setStatus('📍 Standort wird ermittelt …');
+  $('#geoHelp').hidden = true;
+  try {
+    const p = await locate();
+    const loc = { lat: p.coords.latitude, lng: p.coords.longitude, name: 'Mein Standort', gps: true };
+    setStatus('');
+    setLocation(loc);
+    const name = await reverseGeocode(loc.lat, loc.lng);
+    if (name && state.loc === loc) { loc.name = name; store.set('loc', loc); updateLocUI(); }
+  } catch (err) {
+    showGeoHelp(err.code);
+    // Notlösung: ungefährer Standort über die IP-Adresse
+    if (!state.loc) {
+      const ip = await ipLocation();
+      if (ip) {
+        setLocation({ ...ip, name: `${ip.name} (ungefähr)`, approx: true });
+        setStatus('GPS nicht verfügbar – ungefährer Standort über die Internetverbindung. Für genaue Werte Ortung erlauben oder Ort suchen.', true);
+      } else {
+        showView('settings');
+      }
+    }
+  } finally {
+    locating = false;
+  }
+}
+
+/** Beim Öffnen der App still den Standort aktualisieren (nur wenn erlaubt und weiter als 2 km bewegt). */
+async function refreshGPSQuietly() {
+  if (locating || (await geoPermission()) !== 'granted') return;
+  try {
+    const p = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 15 * 60000 });
+    const { latitude: lat, longitude: lng } = p.coords;
+    const dist = Math.hypot((lat - state.loc.lat) * 111, (lng - state.loc.lng) * 111 * Math.cos(lat * Math.PI / 180));
+    if (dist > 2) {
+      const loc = { lat, lng, name: 'Mein Standort', gps: true };
       setLocation(loc);
-      const name = await reverseGeocode(loc.lat, loc.lng);
+      const name = await reverseGeocode(lat, lng);
       if (name && state.loc === loc) { loc.name = name; store.set('loc', loc); updateLocUI(); }
-    },
-    (err) => {
-      const msg = err.code === 1
-        ? 'Ortung nicht erlaubt. Erlaube sie unter Einstellungen › Datenschutz › Ortungsdienste › Safari, oder suche einen Ort in den Optionen.'
-        : 'Standort konnte nicht ermittelt werden. Bitte Ort in den Optionen suchen.';
-      setStatus(msg, true);
-      if (initial) showView('settings');
-    },
-    { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60000 }
-  );
+    }
+  } catch { /* still ignorieren */ }
+}
+
+function showGeoHelp(code) {
+  const box = $('#geoHelp');
+  let html;
+  if (code === 1) {
+    html = `<b>Ortung wurde nicht erlaubt.</b> So schaltest du sie frei:
+      <ol>
+        <li><b>Einstellungen › Datenschutz &amp; Sicherheit › Ortungsdienste</b> – Ortungsdienste <b>ein</b>.</li>
+        <li>Dort ganz unten <b>Safari-Websites</b> antippen › <b>„Beim Verwenden der App“</b> wählen und <b>„Genauer Standort“</b> einschalten.</li>
+        <li><b>Einstellungen › Apps › Safari › Standort</b> (ältere iOS: <b>Einstellungen › Safari › Standort</b>) › <b>„Fragen“</b> oder <b>„Erlauben“</b>.</li>
+        ${isStandalone() ? '<li>Hilft das nicht: App-Symbol vom Home-Bildschirm löschen, Seite in Safari öffnen, dort einmal den Standort erlauben und dann erneut <b>„Zum Home-Bildschirm“</b> hinzufügen.</li>' : ''}
+      </ol>`;
+  } else if (code === 0) {
+    html = '<b>Dieses Gerät/dieser Browser unterstützt keine Ortung.</b> Suche deinen Ort unten.';
+  } else {
+    html = `<b>Standort konnte nicht ermittelt werden</b> (${code === 3 ? 'Zeitüberschreitung' : 'kein Signal'}).
+      Prüfe, ob die Ortungsdienste eingeschaltet sind, geh ggf. kurz ins Freie und tippe erneut auf den Button – oder suche den Ort unten.`;
+  }
+  if (!isIOS && code === 1) html = '<b>Ortung wurde nicht erlaubt.</b> Erlaube den Standortzugriff für diese Seite in den Browser-Einstellungen (Schloss-Symbol neben der Adresse) und versuche es erneut.';
+  box.innerHTML = html;
+  box.hidden = false;
+  const w = document.getElementById('welcomeHelp');
+  if (w) { w.innerHTML = html; w.hidden = false; }
+}
+
+async function ipLocation() {
+  try {
+    const r = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?localityLanguage=de');
+    const j = await r.json();
+    if (typeof j.latitude !== 'number' || typeof j.longitude !== 'number') return null;
+    return { lat: j.latitude, lng: j.longitude, name: j.locality || j.city || j.principalSubdivision || 'Unbekannt' };
+  } catch { return null; }
+}
+
+function renderWelcome() {
+  $('#tonight').innerHTML = `
+    <div class="card welcome">
+      <div class="welcome-icon" aria-hidden="true">✦</div>
+      <h1 class="h1">Willkommen!</h1>
+      <p class="muted">Damit die App die Bedingungen für deinen Fotospot berechnen kann, braucht sie deinen Standort. Er wird nur auf deinem Gerät gespeichert.</p>
+      <button class="btn primary" id="welcomeGps">📍 Standort freigeben</button>
+      <button class="btn wide" id="welcomeSearch">🔍 Ort stattdessen suchen</button>
+      <div id="welcomeHelp" class="geohelp" hidden></div>
+    </div>`;
+  $('#welcomeGps').onclick = () => useGPS();
+  $('#welcomeSearch').onclick = () => { showView('settings'); $('#searchInput').focus(); };
 }
 
 function setLocation(loc) {
@@ -620,7 +744,7 @@ function setupSettings() {
     if (state.data) { computeNights(); render(); }
   });
 
-  $('#gpsBtn').addEventListener('click', () => useGPS(false));
+  $('#gpsBtn').addEventListener('click', () => useGPS());
   $('#searchForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const q = $('#searchInput').value.trim();

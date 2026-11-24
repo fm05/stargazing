@@ -1,5 +1,5 @@
 // Service Worker: App-Dateien offline verfügbar, API-Anfragen immer frisch (mit Offline-Fallback).
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/astro.js', 'js/weather.js', 'js/score.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
