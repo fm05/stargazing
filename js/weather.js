@@ -1,7 +1,6 @@
 // Datenquellen (alle kostenlos, ohne API-Schlüssel, CORS-fähig):
 //  - Open-Meteo Forecast  (Wolken in 3 Schichten, Feuchte, Taupunkt, Wind, Sicht, Niederschlag)
 //  - Open-Meteo Air Quality (Aerosol-optische Dicke, Staub -> Transparenz)
-//  - 7Timer! ASTRO        (Seeing & Transparenz, optional)
 //  - NOAA SWPC            (Kp-Index-Vorhersage -> Polarlicht)
 //  - Open-Meteo Geocoding (Ortssuche), BigDataCloud (Ortsname zum GPS-Standort)
 
@@ -23,10 +22,20 @@ const HOURLY = [
   'wind_speed_10m', 'wind_gusts_10m', 'is_day',
 ];
 
+// Bei kurzzeitigen Fehlern (z. B. Ratenbegrenzung, Funkloch) bis zu 2× erneut versuchen
+async function getJSONRetry(url, tries = 3) {
+  for (let i = 0; ; i++) {
+    try { return await getJSON(url); } catch (e) {
+      if (i >= tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+}
+
 export async function fetchForecast(lat, lng) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     `&hourly=${HOURLY.join(',')}&timezone=auto&timeformat=unixtime&forecast_days=8&wind_speed_unit=kmh`;
-  const j = await getJSON(url);
+  const j = await getJSONRetry(url);
   return {
     utcOffset: j.utc_offset_seconds || 0,
     timezone: j.timezone,
@@ -35,9 +44,10 @@ export async function fetchForecast(lat, lng) {
   };
 }
 
-export async function fetchJetStream(lat, lng) {
+// Höhenwinde (für Seeing-Schätzung). Getrennt abgefragt, damit ein Fehler hier die Hauptdaten nicht verhindert.
+export async function fetchUpperWinds(lat, lng) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
-    `&hourly=wind_speed_250hPa&timeformat=unixtime&forecast_days=8&wind_speed_unit=kmh`;
+    `&hourly=wind_speed_250hPa,wind_speed_500hPa,wind_speed_850hPa&timeformat=unixtime&forecast_days=8&wind_speed_unit=kmh`;
   const j = await getJSON(url);
   return toRows(j.hourly);
 }
@@ -59,23 +69,6 @@ function toRows(h) {
   });
   return map;
 }
-
-// 7Timer! ASTRO: 3-stündlich, 72 h. seeing/transparency 1 (sehr gut) … 8 (sehr schlecht)
-export async function fetchSevenTimer(lat, lng) {
-  const url = `https://www.7timer.info/bin/astro.php?lon=${lng.toFixed(3)}&lat=${lat.toFixed(3)}&ac=0&unit=metric&output=json&tzshift=0`;
-  const j = await getJSON(url, 12000);
-  const init = j.init; // "YYYYMMDDHH" (UTC)
-  const base = Date.UTC(+init.slice(0, 4), +init.slice(4, 6) - 1, +init.slice(6, 8), +init.slice(8, 10));
-  return j.dataseries.map((d) => ({
-    t: base + d.timepoint * 3600000,
-    seeing: d.seeing,
-    transparency: d.transparency,
-    liftedIndex: d.lifted_index,
-  }));
-}
-
-export const SEEING_ARCSEC = ['', '< 0.5″', '0.5–0.75″', '0.75–1″', '1–1.25″', '1.25–1.5″', '1.5–2″', '2–2.5″', '> 2.5″'];
-export const TRANSP_MAG = ['', '< 0.3', '0.3–0.4', '0.4–0.5', '0.5–0.6', '0.6–0.7', '0.7–0.85', '0.85–1', '> 1'];
 
 // NOAA Kp-Vorhersage (3-stündlich). Unterstützt Array-of-Arrays und Array-of-Objects.
 export async function fetchKp() {
@@ -104,11 +97,19 @@ export async function searchPlaces(query) {
   }));
 }
 
+// Ortsname zu Koordinaten: BigDataCloud, bei Fehler OpenStreetMap Nominatim als Ausweichdienst
 export async function reverseGeocode(lat, lng) {
   try {
     const j = await getJSON(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=de`, 8000);
-    return j.locality || j.city || j.principalSubdivision || null;
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&localityLanguage=de`, 8000);
+    const n = j.locality || j.city || j.principalSubdivision;
+    if (n) return n;
+  } catch { /* weiter mit Nominatim */ }
+  try {
+    const j = await getJSON(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}&zoom=14&accept-language=de`, 8000);
+    const a = j.address || {};
+    return a.village || a.town || a.city || a.hamlet || a.municipality || a.suburb || a.county || a.state || j.name || null;
   } catch {
     return null;
   }

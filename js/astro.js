@@ -57,6 +57,50 @@ export function gcCulmination(lat) {
   return 90 - Math.abs(lat - GC.dec * DEG);
 }
 
+// ---- Milchstraßenband ----
+// Punkte entlang der galaktischen Ebene (b = 0) mit relativer Flächenhelligkeit und Sternbild-Namen.
+const NGP = { ra: 192.85948 * RAD, dec: 27.12825 * RAD, lNCP: 122.93192 * RAD };
+function galToEq(lDeg) {
+  const l = lDeg * RAD;
+  const dec = Math.asin(Math.cos(NGP.dec) * Math.cos(NGP.lNCP - l));
+  const ra = NGP.ra + Math.atan2(Math.sin(NGP.lNCP - l), -Math.sin(NGP.dec) * Math.cos(NGP.lNCP - l));
+  return { ra, dec };
+}
+function bandWeight(l) {
+  // grobe Helligkeitsverteilung der Milchstraße (Zentrum = 1)
+  const pts = [[0, 1], [30, 0.85], [60, 0.75], [90, 0.62], [120, 0.52], [150, 0.42], [180, 0.38], [210, 0.4], [240, 0.5], [270, 0.75], [300, 0.9], [330, 0.95], [360, 1]];
+  for (let i = 1; i < pts.length; i++) {
+    if (l <= pts[i][0]) { const [l0, w0] = pts[i - 1], [l1, w1] = pts[i]; return w0 + ((w1 - w0) * (l - l0)) / (l1 - l0); }
+  }
+  return 1;
+}
+function bandName(l) {
+  const names = [[15, 'Zentrum (Schütze)'], [45, 'Schild & Adler'], [90, 'Schwan'], [135, 'Kepheus & Kassiopeia'], [165, 'Perseus'], [200, 'Fuhrmann & Stier'], [240, 'Orion & Einhorn'], [280, 'Achterdeck & Segel'], [315, 'Kiel & Kreuz des Südens'], [345, 'Zentaur & Skorpion'], [361, 'Zentrum (Schütze)']];
+  for (const [lim, n] of names) if (l < lim) return n;
+  return 'Milchstraße';
+}
+const BAND = [];
+for (let l = 0; l < 360; l += 10) BAND.push({ l, ...galToEq(l), w: bandWeight(l), name: bandName(l) });
+
+/** Höhenfaktor: unter 5° praktisch unsichtbar (Extinktion/Dunst), ab 30° voll. */
+export function altitudeFactor(alt) {
+  if (alt <= 5) return 0;
+  if (alt >= 30) return 1;
+  return Math.pow((alt - 5) / 25, 0.7);
+}
+
+/** Bester sichtbarer Abschnitt der Milchstraße: { f (0…1), name, alt, az } */
+export function milkyWayBand(ms, lat, lng) {
+  const d = toDays(ms);
+  let best = { f: 0, name: null, alt: -90, az: 0 };
+  for (const p of BAND) {
+    const pos = altAz(p.ra, p.dec, d, lat, lng);
+    const f = p.w * altitudeFactor(pos.alt);
+    if (f > best.f || (best.f === 0 && pos.alt > best.alt)) best = { f, name: p.name, alt: pos.alt, az: pos.az };
+  }
+  return best;
+}
+
 export function sunPosition(ms, lat, lng) {
   const d = toDays(ms);
   const c = sunCoords(d);
@@ -145,7 +189,8 @@ export function analyzeNight(startMs, lat, lng, stepMin = 5) {
     const sun = sunPosition(t, lat, lng);
     const moon = moonPosition(t, lat, lng);
     const gc = galacticCenterPosition(t, lat, lng);
-    samples.push({ t, sun: sun.alt, moon: moon.alt, moonAz: moon.az, gc: gc.alt, gcAz: gc.az });
+    const band = sun.alt < -10 ? milkyWayBand(t, lat, lng) : { f: 0, name: null, alt: -90, az: 0 };
+    samples.push({ t, sun: sun.alt, moon: moon.alt, moonAz: moon.az, gc: gc.alt, gcAz: gc.az, band: band.f, bandName: band.name, bandAlt: band.alt, bandAz: band.az });
   }
 
   const crossing = (key, thr, dir) => {
@@ -199,10 +244,14 @@ export function analyzeNight(startMs, lat, lng, stepMin = 5) {
     gcWindow.moonFreeMin = gcDark.filter((s) => s.moon < 0).length * stepMin;
   }
 
+  // Hellster sichtbarer Milchstraßen-Abschnitt in der Dunkelheit
+  let bandBest = null;
+  for (const s of samples) if (s.sun < -15 && s.band > 0 && (!bandBest || s.band > bandBest.band)) bandBest = s;
+
   const midT = events.astroDusk && events.astroDawn ? (events.astroDusk + events.astroDawn) / 2 : startMs + 12 * 3600000;
   const illum = moonIllumination(midT);
 
-  return { samples, events, moonEvents, astroDarkMin, nauticalDarkMin, moonFreeDarkMin, gcWindow, illum, midT };
+  return { samples, events, moonEvents, astroDarkMin, nauticalDarkMin, moonFreeDarkMin, gcWindow, bandBest, illum, midT };
 }
 
 /** Sucht die nächste Nacht (ab startMs), in der das Milchstraßenzentrum mind. 30 min sichtbar ist. */

@@ -225,10 +225,51 @@ summary { cursor: pointer; color: var(--accent); font-size: 14px; }
 .welcome .geohelp { text-align: left; margin-top: 12px; }
 .btn.wide { width: 100%; }
 
+/* Wochen-Mini-Verlauf */
+.weekrow:active { transform: scale(0.99); }
+.strip { display: flex; gap: 2px; margin-top: 6px; height: 8px; }
+.strip i { flex: 1; border-radius: 2px; min-width: 3px; }
+.strip i.c-good { background: var(--good); } .strip i.c-warn { background: var(--warn); }
+.strip i.c-serious { background: var(--serious); } .strip i.c-crit { background: var(--crit); }
+
+/* Karte */
+#view-map { position: fixed; left: 0; right: 0; top: 60px; bottom: 64px; z-index: 5; padding: 0; animation: none; }
+body.mapmode main { padding: 0; }
+#map { position: absolute; inset: 0; background: #0b1020; }
+.leaflet-container { font: 12px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; background: #0b1020; }
+.leaflet-control-attribution { background: rgba(10, 14, 28, 0.75) !important; color: var(--muted) !important; font-size: 10px; }
+.leaflet-control-attribution a { color: var(--accent) !important; }
+.leaflet-top.leaflet-right { top: 110px; }
+.leaflet-bar a { background: var(--surface) !important; color: var(--text) !important; border-color: var(--line) !important; }
+.mapbar { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 500; display: flex; gap: 8px; }
+.mapsearch { flex: 1; }
+.mapsearch input { background: rgba(15, 21, 38, 0.92); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+.mapbar .iconbtn { width: 44px; height: 44px; background: rgba(15, 21, 38, 0.92); font-size: 22px; }
+.mapresults { position: absolute; top: 58px; left: 12px; right: 12px; z-index: 600; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px; max-height: 50%; overflow: auto; }
+.mapctl { position: absolute; left: 12px; top: 62px; z-index: 450; display: flex; align-items: center; gap: 10px; background: rgba(15, 21, 38, 0.92); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; font-size: 13px; flex-wrap: wrap; max-width: calc(100% - 24px); }
+.mapctl .switch input { width: 18px; height: 18px; }
+.mapctl input[type=range] { width: 90px; padding: 0; background: none; border: 0; }
+.mapctl.off input[type=range], .mapctl.off #mapLegendBtn { display: none; }
+.maplegend { position: absolute; left: 12px; right: 12px; top: 110px; z-index: 450; background: rgba(15, 21, 38, 0.95); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+#mapLegend { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 4px 8px; margin-top: 6px; font-size: 12px; }
+.lz { display: flex; align-items: center; gap: 5px; }
+.lz i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; flex: none; }
+.lz span { color: var(--muted); }
+.maphint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 400; background: rgba(15, 21, 38, 0.9); border: 1px solid var(--line); border-radius: 99px; padding: 6px 14px; color: var(--text-2); white-space: nowrap; pointer-events: none; }
+.sheet { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 1100; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 -6px 30px rgba(0,0,0,.5); }
+.sheet-x { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; font-size: 14px; }
+.sheet-title { font-size: 18px; font-weight: 700; padding-right: 40px; }
+.sheet-lp { margin: 10px 0 12px; }
+.lpinfo { display: flex; gap: 10px; align-items: center; }
+.lpinfo i { width: 34px; height: 34px; border-radius: 8px; border: 1px solid #555; flex: none; }
+.sheet-btns { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.sheet-btns .btn.primary { margin: 0; }
+.loc-pin span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #3987e5; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(57, 135, 229, 0.3); }
+
 /* Tableiste */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px);
   background: rgba(10, 14, 28, 0.9);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);

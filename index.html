@@ -13,6 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -53,6 +54,38 @@
       <div id="mwSeason"></div>
     </section>
 
+    <!-- Karte -->
+    <section class="view" id="view-map" aria-label="Karte">
+      <div id="map"></div>
+      <div class="mapbar">
+        <form id="mapSearch" class="mapsearch" autocomplete="off">
+          <input id="mapSearchInput" type="search" placeholder="Ort suchen …" aria-label="Ort auf der Karte suchen">
+        </form>
+        <button class="iconbtn" id="mapLocate" aria-label="Zum aktuellen Standort" title="Zum aktuellen Standort">◎</button>
+      </div>
+      <ul id="mapSearchResults" class="results mapresults" hidden></ul>
+      <div class="mapctl" id="mapLpControls">
+        <label class="switch"><input type="checkbox" id="mapLpToggle"> Lichtverschmutzung</label>
+        <input type="range" id="mapOpacity" min="0.2" max="0.9" step="0.05" aria-label="Deckkraft der Lichtverschmutzung">
+        <button class="link" id="mapLegendBtn">Legende</button>
+      </div>
+      <div class="maplegend" id="mapLegendBox" hidden>
+        <div class="small muted">Zonen der künstlichen Himmelshelligkeit (Atlas D. Lorenz, Satellitendaten 2025)</div>
+        <div id="mapLegend"></div>
+      </div>
+      <div class="maphint small" id="mapHint">Tippe auf die Karte, um einen Ort auszuwählen.</div>
+      <div class="sheet" id="mapSheet" hidden>
+        <button class="iconbtn sheet-x" id="sheetClose" aria-label="Schließen">✕</button>
+        <div class="sheet-title" id="sheetTitle"></div>
+        <div class="muted small" id="sheetCoords"></div>
+        <div id="sheetLP" class="sheet-lp"></div>
+        <div class="sheet-btns">
+          <button class="btn primary" id="sheetUse">Als Standort verwenden</button>
+          <button class="btn" id="sheetFav">☆ Merken</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Kamera -->
     <section class="view" id="view-camera" aria-label="Kamera">
       <h1 class="h1">Kamera-Rechner</h1>
@@ -83,6 +116,7 @@
         <h2 class="h2">Standort</h2>
         <p class="muted small" id="locInfo"></p>
         <button class="btn primary" id="gpsBtn">📍 Aktuellen Standort verwenden</button>
+        <button class="btn wide" id="mapPickBtn">🗺️ Auf der Karte auswählen</button>
         <div id="geoHelp" class="geohelp" hidden></div>
         <form id="searchForm" class="search" autocomplete="off">
           <input id="searchInput" type="search" placeholder="Ort suchen, z. B. Feldberg" aria-label="Ort suchen">
@@ -104,9 +138,10 @@
 
       <div class="card">
         <h2 class="h2">Lichtverschmutzung (Bortle-Skala)</h2>
-        <p class="muted small">Die Himmelshelligkeit lässt sich nicht automatisch abrufen. Schau auf der Karte nach und stelle die Klasse für deinen Fotospot ein. Sie wird pro Ort gespeichert.</p>
-        <select id="bortle"></select>
-        <p><a id="lpLink" href="https://www.lightpollutionmap.info" target="_blank" rel="noopener">Lichtverschmutzungskarte für diesen Ort öffnen ↗</a></p>
+        <p class="muted small">Wird automatisch aus dem Lichtverschmutzungs-Atlas (Satellitendaten 2025) gelesen. Kennst du deinen Spot besser, kannst du die Klasse hier überschreiben – sie wird pro Ort gespeichert.</p>
+        <p class="small" id="bortleSrc"></p>
+        <select id="bortle" aria-label="Bortle-Klasse"></select>
+        <p class="small"><a href="#" data-goto="map">Lichtverschmutzungskarte in der App öffnen ›</a> · <a id="lpLink" href="https://www.lightpollutionmap.info" target="_blank" rel="noopener">lightpollutionmap.info ↗</a></p>
         <table class="bortle-table">
           <tr><th>Klasse</th><th>Himmel</th><th>Milchstraße</th></tr>
           <tr><td>1–2</td><td>Sehr dunkel, Zodiakallicht</td><td>Strukturreich, wirft Schatten</td></tr>
@@ -129,14 +164,14 @@
           <li><b>Wolken</b> – tiefe, mittlere und hohe Wolken getrennt gewichtet</li>
           <li><b>Niederschlag</b> – Wahrscheinlichkeit und Menge</li>
           <li><b>Mond</b> – Beleuchtung × Höhe über dem Horizont</li>
-          <li><b>Transparenz</b> – Aerosole/Staub (AOD) und 7Timer-Transparenz</li>
+          <li><b>Transparenz</b> – Aerosole, Staub und Rauch (AOD)</li>
           <li><b>Sichtweite &amp; Luftfeuchte</b> – Dunst</li>
           <li><b>Wind &amp; Böen</b> – Verwacklungsgefahr auf dem Stativ</li>
-          <li><b>Lichtverschmutzung</b> – Bortle-Klasse</li>
-          <li><b>Milchstraßen-Modus</b> zusätzlich: Höhe des galaktischen Zentrums</li>
+          <li><b>Lichtverschmutzung</b> – Bortle-Klasse (automatisch aus Atlas)</li>
+          <li><b>Milchstraßen-Modus</b> zusätzlich: Höhe und Helligkeit des besten sichtbaren Milchstraßen-Abschnitts (im Sommer das Zentrum, im Winter z. B. Kassiopeia/Perseus)</li>
         </ul>
-        <p class="small muted">Zusätzlich angezeigt: Seeing, Jetstream, Taupunkt-Abstand (Beschlagen), Temperatur, Kp-Index (Polarlicht), Meteorströme, Neumond.</p>
-        <p class="small muted">Daten: Open-Meteo, 7Timer!, NOAA SWPC, BigDataCloud. Astronomie wird lokal berechnet.</p>
+        <p class="small muted">Zusätzlich angezeigt: Seeing (aus Höhenwinden geschätzt), Jetstream, Taupunkt-Abstand (Beschlagen), Temperatur, Kp-Index (Polarlicht), Meteorströme, Neumond.</p>
+        <p class="small muted">Daten: Open-Meteo, NOAA SWPC, BigDataCloud, OpenStreetMap, Lichtverschmutzungs-Atlas von D. Lorenz. Astronomie wird lokal berechnet.</p>
       </div>
     </section>
   </main>
@@ -144,12 +179,14 @@
   <nav class="tabbar" aria-label="Navigation">
     <button class="tab active" data-view="tonight"><span aria-hidden="true">✦</span>Nacht</button>
     <button class="tab" data-view="week"><span aria-hidden="true">▦</span>7 Nächte</button>
+    <button class="tab" data-view="map"><span aria-hidden="true">⌖</span>Karte</button>
     <button class="tab" data-view="camera"><span aria-hidden="true">◉</span>Kamera</button>
     <button class="tab" data-view="settings"><span aria-hidden="true">⚙︎</span>Optionen</button>
   </nav>
 
   <div id="tip" class="tip" hidden></div>
 
+  <script src="vendor/leaflet/leaflet.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

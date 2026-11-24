@@ -3,10 +3,11 @@ import {
   nextNewMoon, activeMeteorShowers, moonIllumination, gcCulmination,
 } from './astro.js';
 import {
-  fetchForecast, fetchJetStream, fetchAirQuality, fetchSevenTimer, fetchKp,
-  searchPlaces, reverseGeocode, SEEING_ARCSEC, TRANSP_MAG,
+  fetchForecast, fetchUpperWinds, fetchAirQuality, fetchKp, searchPlaces, reverseGeocode,
 } from './weather.js';
-import { scoreNight, rating, BORTLE } from './score.js';
+import { scoreNight, rating, BORTLE, SEEING_TEXT } from './score.js';
+import { lightPollutionAt } from './lightpollution.js';
+import { setupMap, refreshMapLocation, invalidateMap } from './map.js';
 
 // ---------- Zustand & Speicher ----------
 const store = {
@@ -32,7 +33,13 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const round = (x, d = 0) => (x == null || isNaN(x) ? '–' : (Math.round(x * 10 ** d) / 10 ** d).toLocaleString('de-DE'));
 const locKey = (l) => `${l.lat.toFixed(2)},${l.lng.toFixed(2)}`;
-const bortle = () => (state.loc && state.bortleByLoc[locKey(state.loc)]) || 4;
+// Bortle pro Ort: Zahl (manuell, alte Version) oder { v, auto, zone }
+const bortleEntry = (l = state.loc) => {
+  const e = l && state.bortleByLoc[locKey(l)];
+  if (e == null) return null;
+  return typeof e === 'number' ? { v: e, auto: false } : e;
+};
+const bortle = (l) => bortleEntry(l)?.v || 4;
 
 // Zeitformat in der Zeitzone des Standorts
 const off = () => (state.data?.forecast?.utcOffset ?? -new Date().getTimezoneOffset() * 60) * 1000;
@@ -45,8 +52,6 @@ const fmtD = (ms, opts = { weekday: 'short', day: 'numeric', month: 'numeric' })
   new Date(ms + off()).toLocaleDateString('de-DE', { ...opts, timeZone: 'UTC' });
 const fmtDur = (min) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`;
 
-// ---------- Start ----------
-init();
 
 function blockZoom() {
   // iOS Safari ignoriert user-scalable=no teilweise – Pinch- und Doppeltipp-Zoom daher zusätzlich per Script verhindern
@@ -57,9 +62,21 @@ function blockZoom() {
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 }
 
+function showFatal(msg) {
+  const s = document.getElementById('status');
+  if (s) { s.textContent = `Fehler: ${msg} – bitte Screenshot an den Entwickler.`; s.className = 'status err'; s.hidden = false; }
+}
+window.addEventListener('error', (e) => showFatal(e.message));
+window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message || String(e.reason)));
+
 function init() {
   blockZoom();
   setupTabs();
+  setupMap({
+    getLoc: () => state.loc,
+    onSelect: (loc) => setLocation(loc),
+    onSaveFav: (loc) => saveFav(loc),
+  });
   setupSettings();
   setupCamera();
   applyRed();
@@ -74,7 +91,7 @@ function init() {
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-  const cached = store.get('cache', null);
+  const cached = store.get('cache2', null);
   if (state.loc) {
     if (cached && cached.key === locKey(state.loc)) {
       state.data = reviveData(cached.data);
@@ -82,6 +99,7 @@ function init() {
       render();
     }
     load(false);
+    autoBortle(state.loc);
     if (state.loc.gps) refreshGPSQuietly();
   } else {
     renderWelcome();
@@ -237,12 +255,39 @@ function renderWelcome() {
 }
 
 function setLocation(loc) {
+  const changed = !state.loc || locKey(state.loc) !== locKey(loc);
   state.loc = loc;
   store.set('loc', loc);
   state.nightIdx = 0;
+  if (changed) {
+    // alte Daten verwerfen, damit nie Werte vom vorherigen Ort angezeigt werden
+    state.data = null;
+    state.nights = [];
+    $('#tonight').innerHTML = '';
+    $('#week').innerHTML = '';
+  }
   updateLocUI();
+  autoBortle(loc);
   load(true);
+  refreshMapLocation();
   showView('tonight');
+}
+
+/** Bortle-Klasse automatisch aus der Lichtverschmutzungskarte ermitteln (wenn nicht manuell gesetzt). */
+async function autoBortle(loc) {
+  const e = bortleEntry(loc);
+  if (e && !e.auto) return; // manuelle Einstellung hat Vorrang
+  try {
+    const z = await lightPollutionAt(loc.lat, loc.lng);
+    state.bortleByLoc[locKey(loc)] = { v: z.bortle, auto: true, zone: z.zone, sqm: z.sqm };
+    store.set('bortleByLoc', state.bortleByLoc);
+    if (state.loc && locKey(state.loc) === locKey(loc)) {
+      updateLocUI();
+      if (state.data) { computeNights(); render(); }
+    }
+  } catch (err) {
+    console.warn('Lichtverschmutzung nicht ermittelbar', err);
+  }
 }
 
 function updateLocUI() {
@@ -251,50 +296,60 @@ function updateLocUI() {
   $('#locInfo').textContent = l ? `${l.name} · ${l.lat.toFixed(4)}°, ${l.lng.toFixed(4)}°` : 'Noch kein Standort gewählt.';
   if (l) $('#lpLink').href = `https://www.lightpollutionmap.info/#zoom=10.00&lat=${l.lat.toFixed(4)}&lon=${l.lng.toFixed(4)}&state=eyJiYXNlbWFwIjoiTGF5ZXJCaW5nUm9hZCIsIm92ZXJsYXkiOiJ3YV8yMDE1Iiwib3ZlcmxheWNvbG9yIjpmYWxzZSwib3ZlcmxheW9wYWNpdHkiOjYwLCJmZWF0dXJlc29wYWNpdHkiOjg1fQ==`;
   $('#bortle').value = String(bortle());
+  const be = bortleEntry();
+  $('#bortleSrc').innerHTML = !l ? '' : be?.auto
+    ? `✓ Automatisch aus der Lichtverschmutzungskarte: Zone <b>${esc(be.zone)}</b>, Himmelshelligkeit ca. ${esc(be.sqm || '')} mag/″² → Bortle ${be.v}.`
+    : be ? `Manuell eingestellt. <button class="link" id="bortleAuto">Automatisch ermitteln</button>` : 'Wird ermittelt …';
+  const ba = document.getElementById('bortleAuto');
+  if (ba) ba.onclick = () => { delete state.bortleByLoc[locKey(state.loc)]; store.set('bortleByLoc', state.bortleByLoc); updateLocUI(); autoBortle(state.loc); };
   renderFavs();
 }
 
 // ---------- Daten laden ----------
+let loadSeq = 0;
 async function load(force) {
-  if (!state.loc || state.loading) return;
+  if (!state.loc) return;
   const { lat, lng } = state.loc;
   if (!force && state.data && state.data.key === locKey(state.loc) && Date.now() - state.data.fetched < 20 * 60000) return;
+  const seq = ++loadSeq;
+  const key = locKey(state.loc);
   state.loading = true;
   $('#refreshBtn').classList.add('spin');
   setStatus(state.data ? '' : 'Lade Wetter- und Himmelsdaten …');
 
   const settle = (p) => p.then((v) => v).catch(() => null);
   try {
-    const [forecast, jet, aq, seven, kp] = await Promise.all([
+    const [forecast, upper, aq, kp] = await Promise.all([
       fetchForecast(lat, lng),
-      settle(fetchJetStream(lat, lng)),
+      settle(fetchUpperWinds(lat, lng)),
       settle(fetchAirQuality(lat, lng)),
-      settle(fetchSevenTimer(lat, lng)),
       settle(fetchKp()),
     ]);
-    state.data = { key: locKey(state.loc), fetched: Date.now(), forecast, jet, aq, seven, kp };
-    store.set('cache', { key: state.data.key, data: serializeData(state.data) });
+    if (seq !== loadSeq) return; // inzwischen wurde ein anderer Ort gewählt
+    state.data = { key, fetched: Date.now(), forecast, upper, aq, kp };
+    store.set('cache2', { key: state.data.key, data: serializeData(state.data) });
     setStatus('');
   } catch (e) {
+    if (seq !== loadSeq) return;
     if (state.data) setStatus(`Offline – zeige gespeicherte Daten vom ${new Date(state.data.fetched).toLocaleString('de-DE')}.`, true);
     else setStatus('Wetterdaten konnten nicht geladen werden. Prüfe die Internetverbindung und tippe auf ↻.', true);
   } finally {
-    state.loading = false;
-    $('#refreshBtn').classList.remove('spin');
+    if (seq === loadSeq) { state.loading = false; $('#refreshBtn').classList.remove('spin'); }
   }
-  if (state.data) { computeNights(); render(); }
+  if (state.data && state.data.key === locKey(state.loc)) { computeNights(); render(); }
 }
 
 function serializeData(d) {
   const m = (x) => (x ? [...x.entries()] : null);
-  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, jet: m(d.jet), aq: m(d.aq) };
+  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq) };
 }
 function reviveData(d) {
   const m = (x) => (x ? new Map(x) : null);
-  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, jet: m(d.jet), aq: m(d.aq) };
+  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq) };
 }
 
 function computeNights() {
+  if (!state.data || !state.loc || state.data.key !== locKey(state.loc)) return;
   const { lat, lng } = state.loc;
   const o = off();
   const now = Date.now();
@@ -319,9 +374,10 @@ function computeNights() {
 // ---------- Rendering ----------
 function render() {
   if (!state.nights.length) return;
-  renderTonight();
-  renderWeek();
-  renderCamera();
+  // Jeden Bereich einzeln absichern, damit ein Fehler nicht alle Ansichten leer lässt
+  for (const [name, fn] of [['Nacht', renderTonight], ['7 Nächte', renderWeek], ['Kamera', renderCamera]]) {
+    try { fn(); } catch (e) { console.error(e); showFatal(`${name}: ${e.message}`); }
+  }
 }
 
 function ringSVG(score, cls) {
@@ -356,12 +412,13 @@ function renderTonight() {
 
   // Limitierende Faktoren im besten Fenster
   const winHours = sc.hours.filter((h) => best.start != null && h.t >= best.start && h.t < best.end);
-  const factorNames = { dark: 'Dämmerung', cloud: 'Wolken', precip: 'Niederschlag', moon: 'Mondlicht', hum: 'Luftfeuchte', vis: 'Dunst/Sicht', transp: 'Transparenz', wind: 'Wind', gc: 'Milchstraßenzentrum zu tief' };
+  const factorNames = { dark: 'Dämmerung', cloud: 'Wolken', precip: 'Niederschlag', moon: 'Mondlicht', hum: 'Luftfeuchte', vis: 'Dunst/Sicht', transp: 'Transparenz', wind: 'Wind', band: 'Milchstraße steht tief / lichtschwacher Teil' };
   const limits = [];
   if (winHours.length) {
     for (const k of Object.keys(factorNames)) {
-      if (k === 'gc' && mode !== 'mw') continue;
-      const v = winHours.reduce((a, h) => a + h.f[k], 0) / winHours.length;
+      if (k === 'band' && mode !== 'mw') continue;
+      const fk = k === 'moon' && mode === 'mw' ? 'moonMW' : k;
+      const v = winHours.reduce((a, h) => a + h.f[fk], 0) / winHours.length;
       if (v < 0.9) limits.push({ k, v });
     }
     limits.sort((a, b) => a.v - b.v);
@@ -386,9 +443,9 @@ function renderTonight() {
       <button role="tab" class="${mode === 'mw' ? 'on' : ''}" data-mode="mw">Milchstraße</button>
     </div>`;
   root.append(head);
-  head.querySelector('#prevN').onclick = () => { state.nightIdx--; renderTonight(); };
-  head.querySelector('#nextN').onclick = () => { state.nightIdx++; renderTonight(); };
-  head.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { state.mode = b.dataset.mode; store.set('mode', state.mode); renderTonight(); }));
+  head.querySelector('#prevN').onclick = () => { state.nightIdx--; render(); };
+  head.querySelector('#nextN').onclick = () => { state.nightIdx++; render(); };
+  head.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { state.mode = b.dataset.mode; store.set('mode', state.mode); render(); }));
 
   // Hero
   const hero = el('div', 'card hero');
@@ -396,7 +453,7 @@ function renderTonight() {
   if (!hasData) heroText = '<p>Für diese Nacht liegen noch keine Wetterdaten vor.</p>';
   else {
     heroText = `<div class="verdict ${r.cls}">${esc(r.text)}</div>
-      <div class="besttime">${best.start ? `Beste Zeit: <b>${fmtT(best.start)} – ${fmtT(best.end)}</b>` : 'Keine geeignete Zeit mehr'}</div>
+      <div class="besttime">${best.start && best.score >= 10 ? `Beste Zeit: <b>${fmtT(best.start)} – ${fmtT(best.end)}</b>` : best.start ? 'Kein lohnendes Zeitfenster' : 'Keine geeignete Zeit mehr'}</div>
       ${!best.start ? '' : limits.length ? `<div class="limits">Begrenzt durch: ${limits.slice(0, 3).map((l) => `<span>${esc(factorNames[l.k])}</span>`).join('')}</div>` : '<div class="limits ok">Keine nennenswerten Einschränkungen 🎉</div>'}`;
   }
   hero.innerHTML = `${ringSVG(hasData ? best.score : 0, r.cls)}<div class="herotext">
@@ -407,12 +464,16 @@ function renderTonight() {
   if (mode === 'mw') {
     const g = night.gcWindow;
     const mwc = el('div', 'card note');
+    const bh = winHours.length ? winHours.reduce((a, h) => (h.band > a.band ? h : a), winHours[0]) : null;
+    const bandTxt = bh && bh.band > 0
+      ? `<b>Im besten Zeitfenster:</b> ${esc(bh.bandName)} – ${round(bh.bandAlt)}° hoch im ${azimuthName(bh.bandAz)} (Helligkeit ${Math.round(bh.band * 100)} % vom Zentrum).<br>`
+      : (night.bandBest ? `<b>Hellster Teil in der Dunkelheit:</b> ${esc(night.bandBest.bandName)} um ${fmtT(night.bandBest.t)}, ${round(night.bandBest.bandAlt)}° im ${azimuthName(night.bandBest.bandAz)}.<br>` : '');
     if (g) {
-      mwc.innerHTML = `<b>Milchstraßenzentrum</b> sichtbar ${fmtT(g.start)} – ${fmtT(g.end)}; höchster Stand ${round(g.bestAlt)}° im ${azimuthName(g.bestAz)} um ${fmtT(g.bestT)}.
+      mwc.innerHTML = `${bandTxt}<b>Milchstraßenzentrum</b> sichtbar ${fmtT(g.start)} – ${fmtT(g.end)}; höchster Stand ${round(g.bestAlt)}° im ${azimuthName(g.bestAz)} um ${fmtT(g.bestT)}.
         ${g.moonFreeMin < g.minutes ? `<br>Davon ohne Mond: ${fmtDur(g.moonFreeMin)}.` : ''}`;
     } else {
-      mwc.innerHTML = `<b>Das Milchstraßenzentrum</b> steht in dieser Jahreszeit während der Dunkelheit unter dem Horizont.
-        Das hellere Milchstraßenband (Kassiopeia, Schwan, Perseus, im Winter Fuhrmann/Orion) ist bei dunklem Himmel trotzdem fotografierbar.
+      mwc.innerHTML = `${bandTxt}<b>Das Milchstraßenzentrum</b> (hellster Teil) steht in dieser Jahreszeit während der Dunkelheit unter dem Horizont –
+        bewertet wird daher der hellste sichtbare Abschnitt des Bandes. Dieser ist lichtschwächer, bei dunklem Himmel aber gut fotografierbar.
         <span id="mwNext" class="muted"></span>`;
       setTimeout(() => {
         const n = nextMilkyWaySeason(start, state.loc.lat, state.loc.lng);
@@ -447,17 +508,19 @@ function renderTonight() {
     `Min. Abstand Temperatur–Taupunkt: ${round(s.spreadMin, 1)} °C<br>${s.spreadMin != null && s.spreadMin < 3 ? '⚠︎ Objektiv kann beschlagen – Heizmanschette einpacken!' : 'Geringe Beschlaggefahr'}`));
   tiles.push(tile('Wind', s.wind != null ? `${round(s.wind)} km/h` : '–', lvl(s.wind, 12, 20, 30),
     `Böen bis ${round(s.gust)} km/h<br>${(s.gust ?? 0) > 35 ? 'Stativ beschweren, kurze Belichtungen' : 'Ruhig genug fürs Stativ'}`));
-  tiles.push(tile('Transparenz', s.aod != null ? `AOD ${round(s.aod, 2)}` : s.transparency != null ? `${round(s.transparency, 1)}/8` : '–',
-    s.aod != null ? lvl(s.aod, 0.12, 0.25, 0.45) : lvl(s.transparency, 3, 5, 6),
-    `${s.aod != null ? `Aerosol-optische Dicke ${round(s.aod, 2)} (unter 0,1 = sehr klar)<br>` : ''}${s.dust != null ? `Saharastaub ${round(s.dust)} µg/m³<br>` : ''}${s.transparency != null ? `7Timer: ${round(s.transparency, 1)} von 8 (1 = beste, ${TRANSP_MAG[Math.round(s.transparency)]} mag/Luftmasse)` : 'Keine 7Timer-Daten'}`));
-  tiles.push(tile('Seeing', s.seeing != null ? `${round(s.seeing, 1)}/8` : s.jet != null ? `${round(s.jet)} km/h` : '–',
-    s.seeing != null ? lvl(s.seeing, 3, 5, 6) : lvl(s.jet, 90, 150, 200),
-    `${s.seeing != null ? `Luftruhe ${SEEING_ARCSEC[Math.round(s.seeing)]} (1 = beste)<br>` : ''}${s.jet != null ? `Jetstream (250 hPa): ${round(s.jet)} km/h<br>` : ''}<span class="muted">Wichtig für Teleskop/lange Brennweiten, kaum für Weitwinkel.</span>`));
+  tiles.push(tile('Transparenz', s.aod != null ? `AOD ${round(s.aod, 2)}` : '–',
+    s.aod != null ? lvl(s.aod, 0.12, 0.25, 0.45) : 'none',
+    s.aod != null
+      ? `Aerosol-optische Dicke (Dunst, Staub, Rauch): unter 0,1 sehr klar, über 0,3 trüb${s.dust != null ? `<br>Saharastaub ${round(s.dust)} µg/m³` : ''}`
+      : 'Aerosol-Vorhersage reicht nur ~5 Tage'));
+  tiles.push(tile('Seeing (geschätzt)', s.seeing != null ? `${round(s.seeing, 1)}/8` : '–', lvl(s.seeing, 3, 5, 6),
+    `${s.seeing != null ? `Luftruhe ${SEEING_TEXT[Math.round(s.seeing)]} (1 = beste)<br>` : ''}${s.jet != null ? `Jetstream (250 hPa): ${round(s.jet)} km/h<br>` : ''}<span class="muted">Aus Höhenwinden geschätzt. Wichtig für Teleskop/Tele, kaum für Weitwinkel.</span>`));
   tiles.push(tile('Sichtweite', s.vis != null ? `${round(s.vis / 1000)} km` : '–', lvl(s.vis, 20000, 10000, 5000, false), 'Unter 10 km deutet auf Dunst oder Nebel hin'));
   tiles.push(tile('Temperatur', s.tempMin != null ? `${round(s.tempMin)} °C` : '–', s.tempMin == null ? 'none' : s.tempMin < -10 ? 'warn' : 'good',
     `Nachts ${round(s.tempMin)} bis ${round(s.tempMax)} °C<br>${s.tempMin != null && s.tempMin < 3 ? 'Ersatzakkus warm halten – Kälte leert sie schnell.' : 'Kälte ist kein Problem'}`));
+  const be = bortleEntry();
   tiles.push(tile('Lichtverschmutzung', `Bortle ${bortle()}`, bortle() <= 3 ? 'good' : bortle() <= 5 ? 'warn' : bortle() <= 7 ? 'serious' : 'crit',
-    `${BORTLE[bortle()].label}<br><a href="#" data-goto="settings">Anpassen ›</a>`));
+    `${BORTLE[bortle()].label}<br>${be?.auto ? `Automatisch aus Karte (Zone ${esc(be.zone)})` : be ? 'Manuell eingestellt' : 'Standardwert – noch nicht ermittelt'}<br><a href="#" data-goto="map">Karte ›</a> · <a href="#" data-goto="settings">Ändern ›</a>`));
 
   // Polarlicht
   const gm = geomagneticLatitude(state.loc.lat, state.loc.lng);
@@ -478,7 +541,6 @@ function renderTonight() {
 
   tiles.forEach((t) => grid.append(t));
   root.append(grid);
-  grid.querySelectorAll('[data-goto]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); showView(a.dataset.goto); }));
 
   // Dämmerungszeiten
   const tw = el('div', 'card');
@@ -597,6 +659,7 @@ function hourGrid(sc, mode) {
     ['· hoch', (h) => h.high, (v) => lvl(v, 25, 50, 80), '%'],
     ['Regen', (h) => h.pp, (v) => lvl(v, 10, 30, 60), '%'],
     ['Mond', (h) => Math.round(h.moon), (v) => (v < 0 ? 'good' : lvl(v * state.nights[state.nightIdx].night.illum.fraction, 5, 15, 30)), '°'],
+    ['Milchstr.', (h) => Math.round((h.band ?? 0) * 100), (v) => lvl(v, 70, 45, 20, false), '%'],
     ['MW-Zentrum', (h) => Math.round(h.gc), (v) => lvl(v, 20, 10, 3, false), '°'],
     ['Dunkelheit', (h) => Math.round(h.f.dark * 100), (v) => lvl(v, 99, 70, 40, false), '%'],
     ['Feuchte', (h) => h.rh, (v) => lvl(v, 75, 85, 95), '%'],
@@ -605,8 +668,7 @@ function hourGrid(sc, mode) {
     ['Böen', (h) => Math.round(h.gust), (v) => lvl(v, 25, 40, 55), ''],
     ['Sicht', (h) => (h.vis != null ? Math.round(h.vis / 1000) : null), (v) => lvl(v, 20, 10, 5, false), 'km'],
     ['AOD', (h) => (h.aod != null ? Math.round(h.aod * 100) / 100 : null), (v) => lvl(v, 0.12, 0.25, 0.45), ''],
-    ['Transp.', (h) => h.transparency, (v) => lvl(v, 3, 5, 6), ''],
-    ['Seeing', (h) => h.seeing, (v) => lvl(v, 3, 5, 6), ''],
+    ['Seeing', (h) => (h.seeing != null ? Math.round(h.seeing) : null), (v) => lvl(v, 3, 5, 6), ''],
     ['Jetstream', (h) => (h.jet != null ? Math.round(h.jet) : null), (v) => lvl(v, 90, 150, 200), ''],
     ['Temp.', (h) => (h.temp != null ? Math.round(h.temp) : null), () => 'none', '°'],
   ].filter(([, fn]) => hours.some((h) => fn(h) != null));
@@ -627,7 +689,7 @@ function hourGrid(sc, mode) {
     }
     html += '</tr>';
   }
-  html += '</tbody></table></div><p class="small muted">Wind/Böen in km/h · Mond/MW-Zentrum = Höhe in Grad · Tau-Abst. = Temperatur minus Taupunkt · Seeing/Transparenz: 1 = beste, 8 = schlechteste</p>';
+  html += '</tbody></table></div><p class="small muted">Wind/Böen/Jetstream in km/h · Mond/MW-Zentrum = Höhe in Grad · Milchstr. = Sichtbarkeit des hellsten Abschnitts · Tau-Abst. = Temperatur minus Taupunkt · Seeing geschätzt: 1 = beste, 8 = schlechteste · AOD = Dunst/Aerosole</p>';
   card.insertAdjacentHTML('beforeend', html);
   return card;
 }
@@ -645,16 +707,26 @@ function renderWeek() {
     const has = n.sc.hours.length > 0;
     const main = state.mode === 'mw' ? mw : st;
     const r = rating(main.score);
-    const row = el('button', `card weekrow ${i === bestIdx && bestScore >= 35 ? 'best' : ''}`);
+    const row = el('div', `card weekrow ${i === bestIdx && bestScore >= 35 ? 'best' : ''}`);
+    row.setAttribute('role', 'button');
+    row.tabIndex = 0;
+    // Mini-Verlauf: Score je Stunde ab nautischer Dämmerung
+    const strip = n.sc.hours.filter((h) => h.sun < -12).map((h) => {
+      const v = Math.round(state.mode === 'mw' ? h.mw : h.stars);
+      return `<i class="c-${lvl(v, 55, 35, 15, false)}" title="${fmtT(h.t)}: ${v}"></i>`;
+    }).join('');
     row.innerHTML = `
       <div class="wk-date"><b>${i === 0 ? 'Heute' : i === 1 ? 'Morgen' : fmtD(n.start, { weekday: 'short' }).replace('.', '')}</b><span class="muted small">${fmtD(n.start, { day: 'numeric', month: 'numeric' })}</span></div>
       <div class="wk-score ${r.cls}">${has ? main.score : '–'}</div>
       <div class="wk-info">
         <div>${has ? badge(r.cls, r.text) : '<span class="muted">keine Daten</span>'}${i === bestIdx && bestScore >= 35 ? ' <span class="tag">Beste Nacht</span>' : ''}</div>
         <div class="small">☁︎ ${round(n.sc.summary.cloud)} % · ${ph.icon} ${Math.round(n.night.illum.fraction * 100)} % · Dunkel ${fmtDur(n.night.astroDarkMin)}</div>
-        <div class="small muted">Sterne ${has ? st.score : '–'} · Milchstraße ${has ? mw.score : '–'}${has && main.start ? ` · ab ${fmtT(main.start)}` : ''}</div>
+        <div class="small muted">Sterne ${has ? st.score : '–'} · Milchstraße ${has ? mw.score : '–'}${has && main.start ? ` · beste Zeit ${fmtT(main.start)}–${fmtT(main.end)}` : ''}</div>
+        ${strip ? `<div class="strip" aria-hidden="true">${strip}</div>` : ''}
       </div>`;
-    row.onclick = () => { state.nightIdx = i; renderTonight(); showView('tonight'); };
+    const open = () => { state.nightIdx = i; render(); showView('tonight'); };
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
     root.append(row);
   });
 
@@ -739,8 +811,9 @@ function setupSettings() {
   for (let i = 1; i <= 9; i++) sel.append(new Option(`${i} – ${BORTLE[i].label}`, String(i)));
   sel.addEventListener('change', () => {
     if (!state.loc) return;
-    state.bortleByLoc[locKey(state.loc)] = parseInt(sel.value, 10);
+    state.bortleByLoc[locKey(state.loc)] = { v: parseInt(sel.value, 10), auto: false };
     store.set('bortleByLoc', state.bortleByLoc);
+    updateLocUI();
     if (state.data) { computeNights(); render(); }
   });
 
@@ -768,26 +841,28 @@ function setupSettings() {
     if (isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return alert('Bitte gültige Koordinaten eingeben.');
     setLocation({ lat, lng, name: `${lat.toFixed(3)}°, ${lng.toFixed(3)}°` });
   });
-  $('#favAdd').addEventListener('click', () => {
-    if (!state.loc) return;
-    const name = prompt('Name für diesen Ort:', state.loc.name);
-    if (!name) return;
-    state.favs = state.favs.filter((f) => locKey(f) !== locKey(state.loc));
-    state.favs.push({ lat: state.loc.lat, lng: state.loc.lng, name });
-    store.set('favs', state.favs);
-    state.loc = { ...state.loc, name };
-    store.set('loc', state.loc);
-    updateLocUI();
-  });
+  $('#favAdd').addEventListener('click', () => { if (state.loc) saveFav(state.loc); });
+  $('#mapPickBtn').addEventListener('click', () => showView('map'));
   $('#redToggle').addEventListener('change', (e) => { state.red = e.target.checked; store.set('red', state.red); applyRed(); });
   updateLocUI();
+}
+
+function saveFav(loc) {
+  const name = prompt('Name für diesen Ort:', loc.name);
+  if (!name) return false;
+  state.favs = state.favs.filter((f) => locKey(f) !== locKey(loc));
+  state.favs.push({ lat: loc.lat, lng: loc.lng, name });
+  store.set('favs', state.favs);
+  if (state.loc && locKey(state.loc) === locKey(loc)) { state.loc = { ...state.loc, name }; store.set('loc', state.loc); }
+  updateLocUI();
+  return true;
 }
 
 function renderFavs() {
   const ul = $('#favList');
   ul.innerHTML = state.favs.length ? '' : '<li class="muted small">Noch keine Orte gespeichert.</li>';
   state.favs.forEach((f, i) => {
-    const li = el('li', 'fav', `<button class="result"><b>${esc(f.name)}</b><span class="muted small">Bortle ${state.bortleByLoc[locKey(f)] || '–'} · ${f.lat.toFixed(2)}°, ${f.lng.toFixed(2)}°</span></button><button class="iconbtn del" aria-label="Löschen">✕</button>`);
+    const li = el('li', 'fav', `<button class="result"><b>${esc(f.name)}</b><span class="muted small">Bortle ${bortleEntry(f)?.v ?? '–'} · ${f.lat.toFixed(2)}°, ${f.lng.toFixed(2)}°</span></button><button class="iconbtn del" aria-label="Löschen">✕</button>`);
     li.querySelector('.result').onclick = () => setLocation({ ...f });
     li.querySelector('.del').onclick = () => { state.favs.splice(i, 1); store.set('favs', state.favs); renderFavs(); };
     ul.append(li);
@@ -803,10 +878,23 @@ function applyRed() {
 // ---------- Tabs ----------
 function setupTabs() {
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+  // Links mit data-goto="…" wechseln den Tab (überall in der App)
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-goto]');
+    if (a) { e.preventDefault(); showView(a.dataset.goto); }
+  });
+  try { localStorage.removeItem('cache'); } catch { /* alter Cache der ersten Version */ }
 }
 function showView(v) {
   document.querySelectorAll('.view').forEach((s) => s.classList.toggle('active', s.id === `view-${v}`));
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+  document.body.classList.toggle('mapmode', v === 'map');
   $('#tip').hidden = true;
   window.scrollTo({ top: 0 });
+  if (v === 'map') invalidateMap();
 }
+
+// ---------- Start ----------
+// Erst ganz am Ende aufrufen: Alle Konstanten/Variablen oben müssen initialisiert sein,
+// sonst bricht das Rendern mit gespeicherten Daten ab (das ließ früher die 7-Nächte-Ansicht leer).
+init();

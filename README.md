@@ -7,10 +7,11 @@ Web-App (PWA) fürs iPhone, die für deinen Standort berechnet, wie gut die Chan
 - **Score 0–100** für „Sterne“ und „Milchstraße“, inkl. bester Zeit und begrenzenden Faktoren
 - **Stunde-für-Stunde-Matrix** mit allen Parametern
 - **Höhendiagramm** von Mond und galaktischem Zentrum über die Nacht (antippen für Details)
-- **7-Nächte-Übersicht** mit Markierung der besten Nacht und 30-Tage-Mondkalender
+- **7-Nächte-Übersicht** mit Mini-Verlauf je Nacht, Markierung der besten Nacht und 30-Tage-Mondkalender
+- **Karte** mit Lichtverschmutzungs-Overlay: antippen, Bortle-Klasse sehen, als Standort übernehmen oder merken
 - **Kamera-Rechner** (NPF- und 500er-Regel, ISO-Vorschlag, Bildwinkel, Einstellungen)
 - **Rotlicht-Modus** zum Schutz der Dunkeladaption
-- Ortssuche, GPS, gespeicherte Lieblingsorte, Bortle-Klasse pro Ort
+- Ortssuche, GPS, gespeicherte Lieblingsorte, **Bortle-Klasse automatisch** aus dem Lichtverschmutzungs-Atlas (manuell überschreibbar)
 - Funktioniert offline mit den zuletzt geladenen Daten
 
 ### Berücksichtigte Parameter
@@ -25,13 +26,16 @@ Web-App (PWA) fürs iPhone, die für deinen Standort berechnet, wie gut die Chan
 | Temperatur | Open-Meteo |
 | Jetstream (250 hPa) | Open-Meteo |
 | Aerosol-optische Dicke, Saharastaub | Open-Meteo Air Quality |
-| Seeing & Transparenz | 7Timer! ASTRO |
+| Seeing (geschätzt aus Jetstream, 500/850-hPa-Wind) | Open-Meteo |
 | Kp-Index → Polarlicht-Chance | NOAA SWPC |
 | Sonnenstand, Dämmerungen, astronomische Nacht | lokal berechnet |
 | Mondphase, -beleuchtung, -auf/-untergang, -höhe | lokal berechnet |
 | Sichtbarkeit & Höhe des Milchstraßenzentrums, Saisonbeginn | lokal berechnet |
+| Hellster sichtbarer Milchstraßen-Abschnitt (Sommer: Zentrum, Winter: Kassiopeia/Perseus …) | lokal berechnet |
 | Meteorströme, nächster Neumond | lokal berechnet |
-| Lichtverschmutzung (Bortle) | manuell, mit Link zur Lichtverschmutzungskarte |
+| Lichtverschmutzung (Bortle) | Atlas der künstlichen Himmelshelligkeit, D. Lorenz (VIIRS 2025) |
+| Karte | OpenStreetMap + Leaflet |
+| Ortsnamen | BigDataCloud, Ausweich: OSM Nominatim |
 
 ## Aufs iPhone bringen (kostenlos über GitHub Pages)
 
@@ -53,4 +57,4 @@ python3 -m http.server 8000
 
 ## Wie der Score entsteht
 
-Für jede Nachtstunde werden Faktoren zwischen 0 und 1 berechnet (Dunkelheit, Wolken, Niederschlag, Mond, Transparenz, Sichtweite, Feuchte, Wind, Lichtverschmutzung, im Milchstraßen-Modus zusätzlich die Höhe des galaktischen Zentrums) und multipliziert. Der Wert der Nacht ist das beste zusammenhängende 2-Stunden-Fenster. Die Logik steht in `js/score.js`.
+Für jede Nachtstunde werden Faktoren zwischen 0 und 1 berechnet (Dunkelheit, Wolken, Niederschlag, Mond, Transparenz, Sichtweite, Feuchte, Wind, Lichtverschmutzung, im Milchstraßen-Modus zusätzlich Höhe und Helligkeit des besten sichtbaren Milchstraßen-Abschnitts) und multipliziert. Der Wert der Nacht ist das beste zusammenhängende 2-Stunden-Fenster ab nautischer Dunkelheit. Die Logik steht in `js/score.js`.

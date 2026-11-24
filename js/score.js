@@ -64,7 +64,18 @@ function aodFactor(aod) {
   return 0.65;
 }
 
-const TRANSP_F = [1, 1, 1, 0.97, 0.93, 0.88, 0.82, 0.75, 0.7];
+/**
+ * Seeing-Schätzung (1 = exzellent … 8 = sehr unruhig) aus Höhenwinden.
+ * Starker Jetstream und Windscherung in der Höhe verursachen Luftunruhe (Szintillation).
+ * Grobe Faustformel – relevant für Teleskop/Tele, kaum für Weitwinkel.
+ */
+export function estimateSeeing(w250, w500, w850, w10) {
+  if (w250 == null) return null;
+  const shear = w500 != null && w850 != null ? Math.abs(w500 - w850) : 0;
+  const v = 1 + w250 / 45 + (w500 ?? 0) / 70 + shear / 60 + Math.max(0, (w10 ?? 0) - 15) / 20;
+  return Math.round(Math.max(1, Math.min(8, v)) * 10) / 10;
+}
+export const SEEING_TEXT = ['', 'exzellent', 'sehr gut', 'gut', 'durchschnittlich', 'mäßig', 'unruhig', 'schlecht', 'sehr schlecht'];
 
 function windFactor(w, g) {
   if (w == null) return 1;
@@ -88,18 +99,9 @@ export function rating(score) {
   return { text: 'Keine Chance', cls: 'crit' };
 }
 
-function nearest(list, t, maxDiff) {
-  let best = null, bd = Infinity;
-  for (const x of list) {
-    const d = Math.abs(x.t - t);
-    if (d < bd) { bd = d; best = x; }
-  }
-  return bd <= maxDiff ? best : null;
-}
-
 /**
  * Baut die Stunden-Bewertungen für eine Nacht.
- * night: Ergebnis von analyzeNight; data: { forecast, aq, jet, seven, kp }
+ * night: Ergebnis von analyzeNight; data: { forecast, aq, upper, kp }
  */
 export function scoreNight(night, data, settings) {
   const { samples, illum } = night;
@@ -120,8 +122,7 @@ export function scoreNight(night, data, settings) {
     const w = data.forecast?.hourly.get(t);
     if (!w) continue;
     const aq = data.aq?.get(t);
-    const jet = data.jet?.get(t);
-    const seven = data.seven ? nearest(data.seven, t + 1800000, 1.6 * 3600000) : null;
+    const up = data.upper?.get?.(t);
 
     const dark = darknessFactor(sun);
     const cloud = cloudFactor(w.cloud_cover_low ?? 0, w.cloud_cover_mid ?? 0, w.cloud_cover_high ?? 0);
@@ -132,14 +133,17 @@ export function scoreNight(night, data, settings) {
     const hum = humidityFactor(w.relative_humidity_2m);
     const vis = visibilityFactor(w.visibility);
     const aodF = aodFactor(aq?.aerosol_optical_depth);
-    const sevenF = seven ? TRANSP_F[seven.transparency] ?? 1 : null;
-    const transp = Math.min(aodF ?? 1, sevenF ?? 1);
+    const transp = aodF ?? 1;
     const wind = windFactor(w.wind_speed_10m, w.wind_gusts_10m);
     const gcF = gcFactor(gc, settings.gcCulm ?? 30);
+    // Milchstraße: hellster sichtbarer Abschnitt des Bandes (im Winter z. B. Kassiopeia/Perseus statt Zentrum)
+    const bandF = inHour.reduce((a, s) => a + (s.band ?? 0), 0) / inHour.length;
+    const bandMid = inHour.reduce((a, s) => ((s.band ?? 0) > (a.band ?? 0) ? s : a), mid);
+    const seeing = estimateSeeing(up?.wind_speed_250hPa, up?.wind_speed_500hPa, up?.wind_speed_850hPa, w.wind_speed_10m);
 
     const base = dark * cloud.f * precip * hum * vis * transp * wind;
     const stars = 100 * base * moonF * bortle.star;
-    const mw = 100 * base * moonMW * bortle.mw * gcF;
+    const mw = 100 * base * moonMW * bortle.mw * bandF;
 
     hours.push({
       t, sun, moon, gc, gcAz: mid.gcAz, moonAz: mid.moonAz,
@@ -147,21 +151,23 @@ export function scoreNight(night, data, settings) {
       pp: w.precipitation_probability, mm: w.precipitation,
       cloud: w.cloud_cover, low: w.cloud_cover_low, midc: w.cloud_cover_mid, high: w.cloud_cover_high, effCloud: cloud.eff,
       vis: w.visibility, wind: w.wind_speed_10m, gust: w.wind_gusts_10m,
-      jet: jet?.wind_speed_250hPa, aod: aq?.aerosol_optical_depth, dust: aq?.dust, pm25: aq?.pm2_5,
-      seeing: seven?.seeing, transparency: seven?.transparency,
-      f: { dark, cloud: cloud.f, precip, moon: moonF, hum, vis, transp, wind, gc: gcF },
+      jet: up?.wind_speed_250hPa, w500: up?.wind_speed_500hPa, aod: aq?.aerosol_optical_depth, dust: aq?.dust, pm25: aq?.pm2_5,
+      seeing, band: bandF, bandName: bandMid.bandName, bandAlt: bandMid.bandAlt, bandAz: bandMid.bandAz,
+      f: { dark, cloud: cloud.f, precip, moon: moonF, moonMW, hum, vis, transp, wind, gc: gcF, band: bandF },
       stars, mw,
     });
   }
 
+  // Bestes Fenster: nur zukünftige Stunden und – falls vorhanden – nur ab nautischer Dunkelheit
   const future = settings.notBefore ? hours.filter((h) => h.t + 3600000 > settings.notBefore) : hours;
-  const best = (key) => bestWindow(future, key);
+  const futureDark = future.filter((h) => h.sun < -12);
+  const best = (key) => bestWindow(futureDark.length ? futureDark : future, key);
   const darkHours = hours.filter((h) => h.sun < -12);
   const pool = darkHours.length ? darkHours : hours;
   const mean = (k) => (pool.length ? pool.reduce((a, h) => a + (h[k] ?? 0), 0) / pool.length : null);
-  const minOf = (k) => (pool.length ? Math.min(...pool.map((h) => h[k] ?? Infinity)) : null);
-  const maxOf = (k) => (pool.length ? Math.max(...pool.map((h) => h[k] ?? -Infinity)) : null);
   const valid = (k) => pool.filter((h) => h[k] != null);
+  const minOf = (k) => { const v = valid(k); return v.length ? Math.min(...v.map((h) => h[k])) : null; };
+  const maxOf = (k) => { const v = valid(k); return v.length ? Math.max(...v.map((h) => h[k])) : null; };
   const meanValid = (k) => { const v = valid(k); return v.length ? v.reduce((a, h) => a + h[k], 0) / v.length : null; };
 
   // Kp während der Nacht
@@ -180,10 +186,10 @@ export function scoreNight(night, data, settings) {
       cloud: mean('effCloud'), cloudMin: minOf('effCloud'),
       low: mean('low'), mid: mean('midc'), high: mean('high'),
       pp: maxOf('pp'), rh: mean('rh'), tempMin: minOf('temp'), tempMax: maxOf('temp'),
-      spreadMin: pool.length ? Math.min(...pool.map((h) => (h.temp ?? 99) - (h.dew ?? -99))) : null,
+      spreadMin: (() => { const v = pool.filter((h) => h.temp != null && h.dew != null); return v.length ? Math.min(...v.map((h) => h.temp - h.dew)) : null; })(),
       wind: mean('wind'), gust: maxOf('gust'), vis: meanValid('vis'),
       jet: meanValid('jet'), aod: meanValid('aod'), dust: meanValid('dust'),
-      seeing: meanValid('seeing'), transparency: meanValid('transparency'),
+      seeing: meanValid('seeing'), w500: meanValid('w500'),
       kpMax,
     },
   };
