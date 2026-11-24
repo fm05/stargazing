@@ -266,6 +266,13 @@ body.mapmode main { padding: 0; }
 .sheet-btns .btn.primary { margin: 0; }
 .loc-pin span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #3987e5; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(57, 135, 229, 0.3); }
 
+/* Ortungs-Diagnose */
+.diag { width: 100%; border-collapse: collapse; margin: 8px 0 10px; }
+.diag td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.diag td:first-child { color: var(--muted); padding-right: 10px; width: 42%; }
+.geohelp p { margin: 10px 0 6px; }
+.geohelp .btn { margin: 4px 0; }
+
 /* Tableiste */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;

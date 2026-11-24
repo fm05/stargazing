@@ -124,7 +124,21 @@ function setStatus(msg, isErr = false) {
 
 // ---------- Standort ----------
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const isStandalone = () => window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+const isStandalone = () => !!(window.navigator.standalone || matchMedia('(display-mode: standalone)').matches);
+/** iOS-Version aus dem User-Agent (Safari meldet seit iOS 26 eine eingefrorene OS-Version, daher auch "Version/xx" prüfen). */
+function iosVersion() {
+  const ua = navigator.userAgent;
+  const os = ua.match(/OS (\d+)_/);
+  const ver = ua.match(/Version\/(\d+)/);
+  const v = Math.max(os ? +os[1] : 0, ver ? +ver[1] : 0);
+  return v || null;
+}
+const geoLog = store.get('geoLog', { lastError: null, lastOk: null });
+function logGeo(kind, data) {
+  geoLog[kind] = { ...data, t: Date.now() };
+  store.set('geoLog', geoLog);
+  renderGeoDiag();
+}
 
 async function geoPermission() {
   try {
@@ -169,21 +183,23 @@ async function useGPS() {
   $('#geoHelp').hidden = true;
   try {
     const p = await locate();
+    logGeo('lastOk', { acc: Math.round(p.coords.accuracy) });
     const loc = { lat: p.coords.latitude, lng: p.coords.longitude, name: 'Mein Standort', gps: true };
     setStatus('');
     setLocation(loc);
     const name = await reverseGeocode(loc.lat, loc.lng);
     if (name && state.loc === loc) { loc.name = name; store.set('loc', loc); updateLocUI(); }
   } catch (err) {
+    logGeo('lastError', { code: err.code ?? 0, msg: err.message || '' });
+    setStatus('');
     showGeoHelp(err.code);
-    // Notlösung: ungefährer Standort über die IP-Adresse
+    // Notlösung: ungefährer Standort über die IP-Adresse (bei Mobilfunk oft ungenau → Hinweis auf die Karte)
     if (!state.loc) {
       const ip = await ipLocation();
       if (ip) {
+        state.pendingHelp = true;
         setLocation({ ...ip, name: `${ip.name} (ungefähr)`, approx: true });
-        setStatus('GPS nicht verfügbar – ungefährer Standort über die Internetverbindung. Für genaue Werte Ortung erlauben oder Ort suchen.', true);
-      } else {
-        showView('settings');
+        setStatus('Kein GPS-Zugriff – vorläufig ungefährer Ort über die Internetverbindung. Für genaue Werte tippe unter „Karte“ auf deinen Ort.', true);
       }
     }
   } finally {
@@ -193,9 +209,12 @@ async function useGPS() {
 
 /** Beim Öffnen der App still den Standort aktualisieren (nur wenn erlaubt und weiter als 2 km bewegt). */
 async function refreshGPSQuietly() {
-  if (locating || (await geoPermission()) !== 'granted') return;
+  // Die Permissions-API meldet auf iOS oft falsche Werte – daher auch versuchen, wenn GPS hier schon einmal geklappt hat
+  if (locating) return;
+  if ((await geoPermission()) !== 'granted' && !geoLog.lastOk) return;
   try {
     const p = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 15 * 60000 });
+    logGeo('lastOk', { acc: Math.round(p.coords.accuracy) });
     const { latitude: lat, longitude: lng } = p.coords;
     const dist = Math.hypot((lat - state.loc.lat) * 111, (lng - state.loc.lng) * 111 * Math.cos(lat * Math.PI / 180));
     if (dist > 2) {
@@ -210,7 +229,24 @@ async function refreshGPSQuietly() {
 function showGeoHelp(code) {
   const box = $('#geoHelp');
   let html;
-  if (code === 1) {
+  const iv = iosVersion();
+  if (code === 1 && isIOS && isStandalone()) {
+    html = `<b>iOS verweigert dieser Home-Bildschirm-App den Standort.</b>
+      ${!iv || iv >= 26 ? 'Das ist ein bekannter Fehler seit iOS 26: Apps vom Home-Bildschirm bekommen oft keinen Standort, obwohl dieselbe Seite in Safari funktioniert. Die App selbst kann das nicht umgehen.' : ''}
+      <p><b>Lösung 1 – am einfachsten:</b> Tippe deinen Ort auf der Karte an oder suche ihn. Er wird gespeichert, und für die Vorhersage reicht eine Genauigkeit von ein paar Kilometern völlig.</p>
+      <button class="btn primary" data-goto="map">🗺️ Ort auf der Karte wählen</button>
+      <p><b>Lösung 2 – GPS trotzdem nutzen:</b> App so neu hinzufügen, dass sie in Safari öffnet (dort klappt die Ortung):</p>
+      <ol>
+        <li>App-Symbol auf dem Home-Bildschirm gedrückt halten › <b>App entfernen</b>.</li>
+        <li>Seite in <b>Safari</b> öffnen, einmal <b>📍 Standort freigeben</b> antippen und erlauben.</li>
+        <li><b>Teilen</b> › <b>Zum Home-Bildschirm</b> › den Schalter <b>„Als Web-App öffnen“</b> <b>ausschalten</b> › Hinzufügen.</li>
+      </ol>
+      <p><b>Lösung 3 – manchmal hilft:</b></p>
+      <ol>
+        <li><b>Einstellungen › Datenschutz &amp; Sicherheit › Ortungsdienste</b>: Ortungsdienste an, unten <b>Safari-Websites</b> › <b>„Beim Verwenden der App“</b> und <b>„Genauer Standort“</b> an.</li>
+        <li><b>Einstellungen › Allgemein › iPhone übertragen/zurücksetzen › Zurücksetzen › Standort &amp; Datenschutz zurücksetzen</b> – danach fragt iOS wieder nach (gilt für alle Apps).</li>
+      </ol>`;
+  } else if (code === 1) {
     html = `<b>Ortung wurde nicht erlaubt.</b> So schaltest du sie frei:
       <ol>
         <li><b>Einstellungen › Datenschutz &amp; Sicherheit › Ortungsdienste</b> – Ortungsdienste <b>ein</b>.</li>
@@ -222,13 +258,36 @@ function showGeoHelp(code) {
     html = '<b>Dieses Gerät/dieser Browser unterstützt keine Ortung.</b> Suche deinen Ort unten.';
   } else {
     html = `<b>Standort konnte nicht ermittelt werden</b> (${code === 3 ? 'Zeitüberschreitung' : 'kein Signal'}).
-      Prüfe, ob die Ortungsdienste eingeschaltet sind, geh ggf. kurz ins Freie und tippe erneut auf den Button – oder suche den Ort unten.`;
+      Prüfe, ob die Ortungsdienste eingeschaltet sind, geh ggf. kurz ins Freie und tippe erneut auf den Button – oder wähle den Ort auf der Karte.
+      <button class="btn wide" data-goto="map" style="margin-top:8px">🗺️ Ort auf der Karte wählen</button>`;
   }
   if (!isIOS && code === 1) html = '<b>Ortung wurde nicht erlaubt.</b> Erlaube den Standortzugriff für diese Seite in den Browser-Einstellungen (Schloss-Symbol neben der Adresse) und versuche es erneut.';
   box.innerHTML = html;
   box.hidden = false;
   const w = document.getElementById('welcomeHelp');
   if (w) { w.innerHTML = html; w.hidden = false; }
+  // Auf der Nacht-Ansicht ebenfalls anzeigen (dort landet man nach dem Ersatz-Standort)
+  state.geoHelpHtml = html;
+}
+
+/** Ortungs-Diagnose in den Optionen – hilft herauszufinden, was iOS genau meldet. */
+async function renderGeoDiag() {
+  const box = document.getElementById('geoDiag');
+  if (!box) return;
+  const perm = await geoPermission();
+  const codeTxt = { 0: 'nicht unterstützt', 1: 'verweigert (PERMISSION_DENIED)', 2: 'Position nicht verfügbar', 3: 'Zeitüberschreitung' };
+  const t = (x) => new Date(x).toLocaleString('de-DE', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const iv = iosVersion();
+  const rows = [
+    ['Ansicht', isStandalone() ? 'Home-Bildschirm-App' : 'Browser (Safari o. ä.)'],
+    ['Gerät', isIOS ? `iPhone/iPad, iOS ${iv ?? '?'}` : navigator.platform || '–'],
+    ['Sichere Verbindung', window.isSecureContext ? 'ja (HTTPS)' : 'nein – Ortung nur über HTTPS möglich!'],
+    ['Ortungs-Schnittstelle', 'geolocation' in navigator ? 'vorhanden' : 'fehlt'],
+    ['Berechtigung laut Browser', `${{ granted: 'erlaubt', prompt: 'fragen', denied: 'verweigert', unknown: 'unbekannt' }[perm] || perm} <span class="muted">(auf iOS oft ungenau)</span>`],
+    ['Letzte Ortung', geoLog.lastOk ? `${t(geoLog.lastOk.t)} · ±${geoLog.lastOk.acc} m` : 'noch nie erfolgreich'],
+    ['Letzter Fehler', geoLog.lastError ? `${t(geoLog.lastError.t)} · ${codeTxt[geoLog.lastError.code] || geoLog.lastError.code}${geoLog.lastError.msg ? ` · „${esc(geoLog.lastError.msg)}“` : ''}` : 'keiner'],
+  ];
+  box.innerHTML = `<table class="diag">${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>`;
 }
 
 async function ipLocation() {
@@ -247,7 +306,8 @@ function renderWelcome() {
       <h1 class="h1">Willkommen!</h1>
       <p class="muted">Damit die App die Bedingungen für deinen Fotospot berechnen kann, braucht sie deinen Standort. Er wird nur auf deinem Gerät gespeichert.</p>
       <button class="btn primary" id="welcomeGps">📍 Standort freigeben</button>
-      <button class="btn wide" id="welcomeSearch">🔍 Ort stattdessen suchen</button>
+      <button class="btn wide" data-goto="map">🗺️ Ort auf der Karte wählen</button>
+      <button class="btn wide" id="welcomeSearch" style="margin-top:8px">🔍 Ort suchen</button>
       <div id="welcomeHelp" class="geohelp" hidden></div>
     </div>`;
   $('#welcomeGps').onclick = () => useGPS();
@@ -429,6 +489,7 @@ function renderTonight() {
 
   const root = $('#tonight');
   root.innerHTML = '';
+  if (state.loc?.approx && state.geoHelpHtml) root.append(el('div', 'geohelp', state.geoHelpHtml));
 
   // Nachtwahl & Modus
   const head = el('div', 'nighthead');
@@ -843,6 +904,8 @@ function setupSettings() {
   });
   $('#favAdd').addEventListener('click', () => { if (state.loc) saveFav(state.loc); });
   $('#mapPickBtn').addEventListener('click', () => showView('map'));
+  $('#geoTestBtn').addEventListener('click', () => useGPS());
+  renderGeoDiag();
   $('#redToggle').addEventListener('change', (e) => { state.red = e.target.checked; store.set('red', state.red); applyRed(); });
   updateLocUI();
 }

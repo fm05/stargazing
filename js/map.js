@@ -48,9 +48,11 @@ export function setupMap(o) {
         ul.append(li);
       }
     } catch {
-      ul.innerHTML = '<li class="muted">Suche fehlgeschlagen (offline?).</li>';
+      ul.innerHTML = '<li class="muted">Suche fehlgeschlagen – Verbindung prüfen und erneut versuchen.</li>';
+      setTimeout(() => { if (ul.textContent.includes('fehlgeschlagen')) ul.hidden = true; }, 4000);
     }
   });
+  $('#mapSearchInput').addEventListener('input', (e) => { if (!e.target.value) $('#mapSearchResults').hidden = true; });
   $('#sheetClose').onclick = closeSheet;
   $('#sheetUse').onclick = () => {
     if (!picked) return;
@@ -95,7 +97,11 @@ function ensureMap() {
   // Zoom-Knöpfe nur auf Geräten ohne Touch (am iPhone zoomt man mit zwei Fingern)
   if (!('ontouchstart' in window)) L.control.zoom({ position: 'topright' }).addTo(map);
   applyLP();
-  map.on('click', (e) => pick(e.latlng.lat, e.latlng.lng));
+  map.on('click', (e) => {
+    // Offene Suchergebnisse zuerst schließen statt gleich einen Ort zu wählen
+    if (!$('#mapSearchResults').hidden) { $('#mapSearchResults').hidden = true; return; }
+    pick(e.latlng.lat, e.latlng.lng);
+  });
   refreshMapLocation();
   return true;
 }

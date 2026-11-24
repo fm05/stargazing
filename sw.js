@@ -1,5 +1,5 @@
 // Service Worker: App-Dateien offline verfügbar, API-Anfragen immer frisch (mit Offline-Fallback).
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/astro.js', 'js/weather.js', 'js/score.js',
   'js/lightpollution.js', 'js/map.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',

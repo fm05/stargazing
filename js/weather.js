@@ -88,7 +88,7 @@ export async function fetchKp() {
 
 export async function searchPlaces(query) {
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=de&format=json`;
-  const j = await getJSON(url);
+  const j = await getJSONRetry(url, 2);
   return (j.results || []).map((r) => ({
     name: r.name,
     detail: [r.admin1, r.country].filter(Boolean).join(', '),
