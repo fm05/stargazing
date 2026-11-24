@@ -3,11 +3,12 @@ import {
   nextNewMoon, activeMeteorShowers, moonIllumination, gcCulmination,
 } from './astro.js';
 import {
-  fetchForecast, fetchUpperWinds, fetchAirQuality, fetchKp, searchPlaces, reverseGeocode,
+  fetchForecast, fetchUpperWinds, fetchAirQuality, fetchKp, fetchModels, searchPlaces, reverseGeocode,
 } from './weather.js';
 import { scoreNight, rating, BORTLE, SEEING_TEXT } from './score.js';
 import { lightPollutionAt } from './lightpollution.js';
 import { setupMap, refreshMapLocation, invalidateMap } from './map.js';
+import { initViews, onViewShown, modelsCard, modelAgreement, heroActions, renderSky, shareSpot } from './views.js';
 
 // ---------- Zustand & Speicher ----------
 const store = {
@@ -76,9 +77,23 @@ function init() {
     getLoc: () => state.loc,
     onSelect: (loc) => setLocation(loc),
     onSaveFav: (loc) => saveFav(loc),
+    onShare: (spot) => shareSpot(spot),
+    getNightCtx: () => {
+      const n = state.nights[state.nightIdx];
+      if (!n) return null;
+      return { night: n.night, nightIdx: state.nightIdx, mode: state.mode, notBefore: state.nightIdx === 0 ? Date.now() : null, label: `${fmtD(n.start)} → ${fmtD(n.start + 86400000)}` };
+    },
   });
   setupSettings();
   setupCamera();
+  initViews({
+    state, fmtT, fmtD, locKey, bortle, bortleEntry, toast,
+    night: () => state.nights[state.nightIdx] || null,
+    setLocation, saveFav, showView,
+    currentView: () => currentView,
+    setAutoBortle: (loc, z) => { state.bortleByLoc[locKey(loc)] = { v: z.bortle, auto: true, zone: z.zone, sqm: z.sqm }; store.set('bortleByLoc', state.bortleByLoc); },
+    reloadFromStorage: () => { state.favs = store.get('favs', []); state.bortleByLoc = store.get('bortleByLoc', {}); updateLocUI(); },
+  });
   applyRed();
   $('#refreshBtn').addEventListener('click', () => load(true));
   $('#locBtn').addEventListener('click', () => showView('settings'));
@@ -379,14 +394,15 @@ async function load(force) {
 
   const settle = (p) => p.then((v) => v).catch(() => null);
   try {
-    const [forecast, upper, aq, kp] = await Promise.all([
+    const [forecast, upper, aq, kp, models] = await Promise.all([
       fetchForecast(lat, lng),
       settle(fetchUpperWinds(lat, lng)),
       settle(fetchAirQuality(lat, lng)),
       settle(fetchKp()),
+      settle(fetchModels(lat, lng)),
     ]);
     if (seq !== loadSeq) return; // inzwischen wurde ein anderer Ort gewählt
-    state.data = { key, fetched: Date.now(), forecast, upper, aq, kp };
+    state.data = { key, fetched: Date.now(), forecast, upper, aq, kp, models };
     store.set('cache2', { key: state.data.key, data: serializeData(state.data) });
     setStatus('');
   } catch (e) {
@@ -401,11 +417,13 @@ async function load(force) {
 
 function serializeData(d) {
   const m = (x) => (x ? [...x.entries()] : null);
-  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq) };
+  const models = d.models ? Object.fromEntries(Object.entries(d.models).map(([k, v]) => [k, m(v)])) : null;
+  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq), models };
 }
 function reviveData(d) {
   const m = (x) => (x ? new Map(x) : null);
-  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq) };
+  const models = d.models ? Object.fromEntries(Object.entries(d.models).map(([k, v]) => [k, m(v)])) : null;
+  return { ...d, forecast: { ...d.forecast, hourly: m(d.forecast.hourly) }, upper: m(d.upper), aq: m(d.aq), models };
 }
 
 function computeNights() {
@@ -435,7 +453,9 @@ function computeNights() {
 function render() {
   if (!state.nights.length) return;
   // Jeden Bereich einzeln absichern, damit ein Fehler nicht alle Ansichten leer lässt
-  for (const [name, fn] of [['Nacht', renderTonight], ['7 Nächte', renderWeek], ['Kamera', renderCamera]]) {
+  const parts = [['Nacht', renderTonight], ['7 Nächte', renderWeek], ['Kamera', renderCamera]];
+  if (currentView === 'sky') parts.push(['Himmel', renderSky]);
+  for (const [name, fn] of parts) {
     try { fn(); } catch (e) { console.error(e); showFatal(`${name}: ${e.message}`); }
   }
 }
@@ -519,7 +539,12 @@ function renderTonight() {
   }
   hero.innerHTML = `${ringSVG(hasData ? best.score : 0, r.cls)}<div class="herotext">
       <div class="muted small">${mode === 'mw' ? 'Chance auf Milchstraßenfotos' : 'Chance auf Sternenfotos'}</div>${heroText}</div>`;
+  if (hasData) {
+    const ag = modelAgreement(sc);
+    if (ag) hero.querySelector('.herotext').insertAdjacentHTML('beforeend', `<div class="conf small">Vorhersage-Sicherheit: <b class="badge ${ag.level.cls}">${ag.level.text}</b></div>`);
+  }
   root.append(hero);
+  if (hasData && state.loc) root.append(heroActions(state.nights[state.nightIdx], best));
 
   // Milchstraße-Hinweis
   if (mode === 'mw') {
@@ -550,6 +575,7 @@ function renderTonight() {
 
   // Stunden-Matrix
   if (hasData) root.append(hourGrid(sc, mode));
+  if (hasData && state.data?.models) root.append(modelsCard(sc));
 
   // Parameter-Kacheln
   const grid = el('div', 'tiles');
@@ -948,13 +974,28 @@ function setupTabs() {
   });
   try { localStorage.removeItem('cache'); } catch { /* alter Cache der ersten Version */ }
 }
+let currentView = 'tonight';
+const PARENT_TAB = { camera: 'more', settings: 'more', pack: 'more', diary: 'more', data: 'more' };
 function showView(v) {
+  currentView = v;
   document.querySelectorAll('.view').forEach((s) => s.classList.toggle('active', s.id === `view-${v}`));
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === (PARENT_TAB[v] || v)));
   document.body.classList.toggle('mapmode', v === 'map');
   $('#tip').hidden = true;
   window.scrollTo({ top: 0 });
   if (v === 'map') invalidateMap();
+  try { onViewShown(v); } catch (e) { console.error(e); showFatal(e.message); }
+}
+
+/** Kurze Hinweismeldung unten am Bildschirm. */
+let toastTimer = null;
+function toast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.append(t); }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
 // ---------- Start ----------

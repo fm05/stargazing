@@ -101,6 +101,24 @@ export function milkyWayBand(ms, lat, lng) {
   return best;
 }
 
+/** Horizontkoordinaten für beliebige Äquatorkoordinaten (RA/Dec in Radiant). */
+export function horizontal(ra, dec, ms, lat, lng) {
+  return altAz(ra, dec, toDays(ms), lat, lng);
+}
+/** Äquatorkoordinaten der Sonne (Radiant). */
+export function sunEquatorial(ms) {
+  return sunCoords(toDays(ms));
+}
+/** Äquatorkoordinaten des Mondes (Radiant). */
+export function moonEquatorial(ms) {
+  return moonCoords(toDays(ms));
+}
+/** Punkte entlang der Milchstraße (für die Himmelsansicht). */
+export function milkyWayPoints() {
+  return BAND;
+}
+export const GALACTIC_CENTER = GC;
+
 export function sunPosition(ms, lat, lng) {
   const d = toDays(ms);
   const c = sunCoords(d);

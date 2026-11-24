@@ -42,6 +42,7 @@
         <em>„Zum Home-Bildschirm“</em> wählen.
         <button class="link" id="installClose">Ausblenden</button>
       </div>
+      <div id="spotBanner" class="card hint" hidden></div>
       <div id="status" class="status" role="status"></div>
       <div id="tonight"></div>
     </section>
@@ -51,6 +52,12 @@
       <h1 class="h1">Die nächsten 7 Nächte</h1>
       <p class="muted small">Tippe auf eine Nacht, um alle Details zu sehen.</p>
       <div id="week"></div>
+      <div class="card" id="compareCard">
+        <h2 class="h2">Gespeicherte Spots vergleichen</h2>
+        <p class="small muted">Alle gemerkten Orte für die nächsten 3 Nächte nebeneinander – mit eigener Lichtverschmutzung je Ort.</p>
+        <button class="btn wide" id="compareBtn">Vergleichen</button>
+        <div id="compareResult"></div>
+      </div>
       <div id="mwSeason"></div>
     </section>
 
@@ -61,34 +68,65 @@
         <form id="mapSearch" class="mapsearch" autocomplete="off">
           <input id="mapSearchInput" type="search" placeholder="Ort suchen …" aria-label="Ort auf der Karte suchen">
         </form>
+        <button class="iconbtn" id="mapSpotsBtn" aria-label="Spots finden" title="Spots finden">★</button>
+        <button class="iconbtn" id="mapLayersBtn" aria-label="Kartenebenen" title="Kartenebenen">◧</button>
         <button class="iconbtn" id="mapLocate" aria-label="Zum aktuellen Standort" title="Zum aktuellen Standort">◎</button>
       </div>
       <ul id="mapSearchResults" class="results mapresults" hidden></ul>
-      <div class="mapctl" id="mapLpControls">
+
+      <div class="mappanel" id="layersPanel" hidden>
+        <div class="panel-h"><b>Kartenebenen</b><button class="iconbtn sm" data-close aria-label="Schließen">✕</button></div>
         <label class="switch"><input type="checkbox" id="mapLpToggle"> Lichtverschmutzung</label>
-        <input type="range" id="mapOpacity" min="0.2" max="0.9" step="0.05" aria-label="Deckkraft der Lichtverschmutzung">
-        <button class="link" id="mapLegendBtn">Legende</button>
+        <div id="lpCtl" class="subctl">
+          <label class="row small">Deckkraft <input type="range" id="mapOpacity" min="0.2" max="0.9" step="0.05"></label>
+          <details><summary class="small">Legende</summary>
+            <div class="small muted">Künstliche Himmelshelligkeit (Atlas D. Lorenz, Satellitendaten 2025)</div>
+            <div id="mapLegend"></div>
+          </details>
+        </div>
+        <label class="switch"><input type="checkbox" id="mapSatToggle"> Wolken (Satellit, Infrarot)</label>
+        <div id="satCtl" class="subctl" hidden>
+          <label class="row small">Zeit <input type="range" id="satTime" min="-6" max="0" step="1" value="0"></label>
+          <div class="small muted"><span id="satLabel"></span> · Wolken erscheinen hell. Laden dauert etwas.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="mapRadarToggle"> Regenradar</label>
+        <div id="radarCtl" class="subctl" hidden>
+          <div class="row small"><button class="btn sm" id="radarPlay" aria-label="Abspielen">▶</button><input type="range" id="radarTime" min="0" max="12" step="1"><span id="radarLabel"></span></div>
+          <div class="small muted">Letzte 2 Stunden, Zugrichtung der Schauer erkennbar.</div>
+        </div>
       </div>
-      <div class="maplegend" id="mapLegendBox" hidden>
-        <div class="small muted">Zonen der künstlichen Himmelshelligkeit (Atlas D. Lorenz, Satellitendaten 2025)</div>
-        <div id="mapLegend"></div>
+
+      <div class="mappanel" id="spotsPanel" hidden>
+        <div class="panel-h"><b>Spots finden</b><button class="iconbtn sm" data-close aria-label="Schließen">✕</button></div>
+        <div class="seg" id="spotsMode"><button class="on" data-sm="best">Beste heute Nacht</button><button data-sm="popular">Beliebte Spots</button></div>
+        <p class="small muted" id="spotsHelp">Sucht im Umkreis die dunkelsten Orte und bewertet sie mit der Wettervorhersage für die gewählte Nacht.</p>
+        <div class="row small">Umkreis
+          <select id="spotsRadius" aria-label="Umkreis"><option value="25">25 km</option><option value="50">50 km</option><option value="100">100 km</option></select>
+          <button class="btn primary sm" id="spotsGo">Suchen</button>
+        </div>
+        <div id="spotsStatus" class="small muted"></div>
+        <ol id="spotsList" class="results spotlist"></ol>
       </div>
+
       <div class="maphint small" id="mapHint">Tippe auf die Karte, um einen Ort auszuwählen.</div>
       <div class="sheet" id="mapSheet" hidden>
         <button class="iconbtn sheet-x" id="sheetClose" aria-label="Schließen">✕</button>
         <div class="sheet-title" id="sheetTitle"></div>
         <div class="muted small" id="sheetCoords"></div>
+        <div id="sheetExtra" class="small"></div>
         <div id="sheetLP" class="sheet-lp"></div>
         <div class="sheet-btns">
           <button class="btn primary" id="sheetUse">Als Standort verwenden</button>
-          <button class="btn" id="sheetFav">☆ Merken</button>
+          <button class="btn" id="sheetFav" aria-label="Merken" title="Merken">☆</button>
+          <button class="btn" id="sheetShare" aria-label="Teilen" title="Teilen">⤴︎</button>
         </div>
       </div>
     </section>
 
     <!-- Kamera -->
     <section class="view" id="view-camera" aria-label="Kamera">
-      <h1 class="h1">Kamera-Rechner</h1>
+      <button class="back" data-goto="more">‹ Mehr</button>
+      <h1 class="h1">Kamera &amp; Rechner</h1>
       <div class="card">
         <div class="form">
           <label>Sensor
@@ -106,11 +144,134 @@
         </div>
       </div>
       <div id="camResult"></div>
+
+      <div class="card">
+        <h2 class="h2">Zeitraffer</h2>
+        <div class="form">
+          <label>Intervall (s) <input id="tlInterval" type="number" inputmode="decimal" min="1" step="1" value="25"></label>
+          <label>Dauer (min) <input id="tlMinutes" type="number" inputmode="decimal" min="1" step="5" value="120"></label>
+          <label>Bilder/s im Video <input id="tlFps" type="number" inputmode="decimal" min="12" max="60" step="1" value="25"></label>
+        </div>
+        <div id="tlResult" class="calc-out"></div>
+      </div>
+      <div class="card">
+        <h2 class="h2">Milchstraßen-Panorama</h2>
+        <div class="form">
+          <label>Brennweite (mm) <input id="panoFocal" type="number" inputmode="decimal" min="8" step="1" value="24"></label>
+          <label>Ausrichtung <select id="panoPortrait"><option value="1">Hochformat</option><option value="0">Querformat</option></select></label>
+          <label>Breite (°) <select id="panoH"><option value="120">120°</option><option value="180" selected>180°</option><option value="360">360°</option></select></label>
+          <label>Höhe (°) <select id="panoV"><option value="45">45°</option><option value="70" selected>70°</option><option value="90">90° (bis Zenit)</option></select></label>
+          <label>Überlappung <select id="panoOverlap"><option value="0.25">25 %</option><option value="0.33" selected>33 %</option><option value="0.5">50 %</option></select></label>
+        </div>
+        <div id="panoResult" class="calc-out"></div>
+      </div>
+      <div class="card">
+        <h2 class="h2">Sternspuren</h2>
+        <div class="form">
+          <label>Gesamtdauer (min) <input id="stMinutes" type="number" inputmode="decimal" min="5" step="5" value="90"></label>
+          <label>Einzelbelichtung (s) <input id="stExposure" type="number" inputmode="decimal" min="5" step="5" value="30"></label>
+          <label>Richtung <select id="stDec"><option value="0">Süden/Osten (Äquator)</option><option value="45">halbe Höhe</option><option value="75">nahe Polarstern</option></select></label>
+        </div>
+        <div id="stResult" class="calc-out"></div>
+      </div>
+      <div class="card">
+        <h2 class="h2">Stacking (Rauschen verringern)</h2>
+        <label class="row small">Anzahl Bilder <input id="stackN" type="range" min="1" max="64" step="1" value="16"> <b id="stackNLabel">16</b></label>
+        <div id="stackResult" class="calc-out"></div>
+      </div>
+    </section>
+
+    <!-- Himmel -->
+    <section class="view" id="view-sky" aria-label="Himmel">
+      <h1 class="h1">Himmel</h1>
+      <p class="muted small" id="skyNight"></p>
+      <div class="card">
+        <h2 class="h2">Himmelsansicht</h2>
+        <div id="skyChart" class="skychart"></div>
+        <label class="row small">Uhrzeit <input type="range" id="skyTime" min="0" max="100" step="1"> <b id="skyTimeLabel"></b></label>
+        <div class="row">
+          <button class="btn sm" id="skyNow">Jetzt</button>
+          <button class="btn sm" id="skyCompass">🧭 Kompass</button>
+          <label class="switch small"><input type="checkbox" id="skyDso" checked> Deep-Sky</label>
+        </div>
+        <p class="small muted" id="skyHint">Draufsicht: Norden oben, Osten rechts, Mitte = Zenit. Mit „Kompass“ dreht sich die Ansicht mit deinem Handy – halte es hoch, und oben ist deine Blickrichtung.</p>
+      </div>
+      <div class="card" id="planetCard"></div>
+      <div class="card" id="dsoCard"></div>
+      <div class="card" id="satCard"></div>
+      <div class="card" id="auroraCard"></div>
+    </section>
+
+    <!-- Mehr -->
+    <section class="view" id="view-more" aria-label="Mehr">
+      <h1 class="h1">Mehr</h1>
+      <div class="menu">
+        <button class="menu-item" data-goto="camera"><span>📷</span><b>Kamera &amp; Rechner</b><small>Belichtung, Zeitraffer, Panorama, Sternspuren</small></button>
+        <button class="menu-item" data-goto="pack"><span>🎒</span><b>Packliste</b><small>passend zu den Bedingungen der Nacht</small></button>
+        <button class="menu-item" data-goto="diary"><span>📓</span><b>Fototagebuch</b><small>Nächte, Einstellungen &amp; Fotos festhalten</small></button>
+        <button class="menu-item" data-goto="data"><span>💾</span><b>Sichern &amp; Teilen</b><small>Export, Import, Spot-Links, Speicher</small></button>
+        <button class="menu-item" data-goto="settings"><span>⚙︎</span><b>Standort &amp; Einstellungen</b><small>Ort, Lieblingsorte, Bortle, Rotlicht</small></button>
+      </div>
+    </section>
+
+    <!-- Packliste -->
+    <section class="view" id="view-pack" aria-label="Packliste">
+      <button class="back" data-goto="more">‹ Mehr</button>
+      <h1 class="h1">Packliste</h1>
+      <p class="muted small" id="packNight"></p>
+      <div class="card"><ul id="packList" class="checklist"></ul>
+        <form id="packAddForm" class="search"><input id="packAddInput" placeholder="Eigenen Punkt hinzufügen" aria-label="Eigenen Punkt hinzufügen"><button class="btn" type="submit">+</button></form>
+        <button class="link" id="packReset">Alle Haken entfernen</button>
+      </div>
+    </section>
+
+    <!-- Tagebuch -->
+    <section class="view" id="view-diary" aria-label="Fototagebuch">
+      <button class="back" data-goto="more">‹ Mehr</button>
+      <h1 class="h1">Fototagebuch</h1>
+      <div class="card">
+        <h2 class="h2" id="diaryFormTitle">Neuer Eintrag</h2>
+        <form id="diaryForm" class="form one">
+          <label>Datum <input id="dDate" type="date" required></label>
+          <label>Ort <input id="dPlace" type="text" placeholder="z. B. Sternenpark Westhavelland"></label>
+          <label>Bewertung <select id="dRating"><option value="5">★★★★★ Traumnacht</option><option value="4" selected>★★★★ Gut</option><option value="3">★★★ Okay</option><option value="2">★★ Mäßig</option><option value="1">★ Schlecht</option></select></label>
+          <label>Kamera-Einstellungen <input id="dSettings" type="text" placeholder="z. B. 14 mm · f/2.8 · 20 s · ISO 3200"></label>
+          <label>Notizen <textarea id="dNotes" rows="3" placeholder="Was hat geklappt, was nicht?"></textarea></label>
+          <label>Foto (optional) <input id="dPhoto" type="file" accept="image/*"></label>
+          <label class="switch small"><input type="checkbox" id="dCond" checked> Bedingungen der Nacht automatisch speichern</label>
+          <button class="btn primary" type="submit">Speichern</button>
+        </form>
+      </div>
+      <div id="diaryList"></div>
+    </section>
+
+    <!-- Sichern & Teilen -->
+    <section class="view" id="view-data" aria-label="Sichern und Teilen">
+      <button class="back" data-goto="more">‹ Mehr</button>
+      <h1 class="h1">Sichern &amp; Teilen</h1>
+      <div class="card">
+        <h2 class="h2">Wo sind meine Daten?</h2>
+        <p class="small">Spots, Einstellungen und Tagebuch liegen <b>nur auf diesem Gerät</b> im Speicher des Browsers – nichts wird an einen Server geschickt. Safari kann Daten von Websites löschen, die 7 Tage nicht geöffnet wurden. Sichere deshalb ab und zu.</p>
+        <p class="small" id="persistInfo"></p>
+      </div>
+      <div class="card">
+        <h2 class="h2">Sicherung</h2>
+        <button class="btn primary" id="exportBtn">⬇︎ Alles exportieren (Datei)</button>
+        <label class="btn wide filebtn">⬆︎ Sicherung importieren<input type="file" id="importFile" accept=".json,application/json" hidden></label>
+        <p class="small muted" id="dataMsg"></p>
+      </div>
+      <div class="card">
+        <h2 class="h2">Spot per Link</h2>
+        <p class="small muted">Geteilte Links öffnen sich auf dem iPhone in Safari. Für die Home-Bildschirm-App: Link oder Koordinaten hier einfügen.</p>
+        <form id="linkForm" class="search"><input id="linkInput" placeholder="Link oder z. B. 52.52, 13.40" aria-label="Link oder Koordinaten"><button class="btn" type="submit">Öffnen</button></form>
+        <button class="btn wide" id="shareCurrent">⤴︎ Aktuellen Ort teilen</button>
+      </div>
     </section>
 
     <!-- Einstellungen -->
     <section class="view" id="view-settings" aria-label="Einstellungen">
-      <h1 class="h1">Einstellungen</h1>
+      <button class="back" data-goto="more">‹ Mehr</button>
+      <h1 class="h1">Standort &amp; Einstellungen</h1>
 
       <div class="card">
         <h2 class="h2">Standort</h2>
@@ -183,15 +344,16 @@
 
   <nav class="tabbar" aria-label="Navigation">
     <button class="tab active" data-view="tonight"><span aria-hidden="true">✦</span>Nacht</button>
-    <button class="tab" data-view="week"><span aria-hidden="true">▦</span>7 Nächte</button>
+    <button class="tab" data-view="week"><span aria-hidden="true">▦</span>Woche</button>
     <button class="tab" data-view="map"><span aria-hidden="true">⌖</span>Karte</button>
-    <button class="tab" data-view="camera"><span aria-hidden="true">◉</span>Kamera</button>
-    <button class="tab" data-view="settings"><span aria-hidden="true">⚙︎</span>Optionen</button>
+    <button class="tab" data-view="sky"><span aria-hidden="true">☾</span>Himmel</button>
+    <button class="tab" data-view="more"><span aria-hidden="true">☰</span>Mehr</button>
   </nav>
 
   <div id="tip" class="tip" hidden></div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/satellite/satellite.min.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

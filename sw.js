@@ -1,8 +1,10 @@
 // Service Worker: App-Dateien offline verfügbar, API-Anfragen immer frisch (mit Offline-Fallback).
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/astro.js', 'js/weather.js', 'js/score.js',
-  'js/lightpollution.js', 'js/map.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
+  'js/lightpollution.js', 'js/map.js', 'js/planets.js', 'js/satellites.js', 'js/aurora.js', 'js/spots.js',
+  'js/tools.js', 'js/compass.js', 'js/views.js', 'vendor/satellite/satellite.min.js',
+  'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-shadow.png', 'vendor/leaflet/images/layers.png',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];

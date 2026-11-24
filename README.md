@@ -4,15 +4,37 @@ Web-App (PWA) fürs iPhone, die für deinen Standort berechnet, wie gut die Chan
 
 ## Funktionen
 
+**Nacht**
 - **Score 0–100** für „Sterne“ und „Milchstraße“, inkl. bester Zeit und begrenzenden Faktoren
-- **Stunde-für-Stunde-Matrix** mit allen Parametern
-- **Höhendiagramm** von Mond und galaktischem Zentrum über die Nacht (antippen für Details)
-- **7-Nächte-Übersicht** mit Mini-Verlauf je Nacht, Markierung der besten Nacht und 30-Tage-Mondkalender
-- **Karte** mit Lichtverschmutzungs-Overlay: antippen, Bortle-Klasse sehen, als Standort übernehmen oder merken
-- **Kamera-Rechner** (NPF- und 500er-Regel, ISO-Vorschlag, Bildwinkel, Einstellungen)
-- **Rotlicht-Modus** zum Schutz der Dunkeladaption
-- Ortssuche, GPS, gespeicherte Lieblingsorte, **Bortle-Klasse automatisch** aus dem Lichtverschmutzungs-Atlas (manuell überschreibbar)
+- **Vorhersage-Sicherheit** durch Vergleich der Wettermodelle ICON, ECMWF, GFS und Météo-France
+- **Stunde-für-Stunde-Matrix** mit allen Parametern, **Höhendiagramm** von Mond und Milchstraße
+- **Kalender-Export** (.ics mit Erinnerung) und **Spot teilen**
+
+**Woche**
+- **7-Nächte-Übersicht** mit Mini-Verlauf, beste Nacht markiert, 30-Tage-Mondkalender
+- **Gespeicherte Spots vergleichen** – alle Lieblingsorte für 3 Nächte nebeneinander
+
+**Karte**
+- Ebenen: **Lichtverschmutzung**, **Wolken-Satellitenbild** (Meteosat-Infrarot, mit Zeitregler), **Regenradar** (animiert)
+- **Spot-Finder:** dunkelste und wolkenärmste Orte im Umkreis von 25/50/100 km für die gewählte Nacht
+- **Beliebte Spots** aus OpenStreetMap: Sternenparks, Sternwarten, Aussichtspunkte, Aussichtstürme, Gipfel – sortiert nach Dunkelheit
+- Ort antippen → Bortle-Klasse, als Standort übernehmen, merken oder teilen
+
+**Himmel**
+- **Himmelsansicht** mit Milchstraßenband, Planeten, Mond und Deep-Sky-Objekten – mit Zeitregler und **Kompassmodus** (dreht sich mit dem Handy)
+- **Planeten** und **Deep-Sky-Objekte** der Nacht mit bester Uhrzeit, Höhe, Richtung und passender Brennweite
+- **ISS-, Tiangong- und Hubble-Überflüge** sowie Warnung vor frisch gestarteten Starlink-Zügen
+- **Polarlicht:** Kp-Vorhersage, Echtzeit-Sonnenwind (Bz, Geschwindigkeit), OVATION-Wahrscheinlichkeit, Polarlicht-Oval
+
+**Mehr**
+- **Kamera & Rechner:** NPF-/500er-Regel, ISO, Bildwinkel, Zeitraffer, Panorama, Sternspuren, Stacking
+- **Packliste**, die sich an die Nacht anpasst (Kälte, Tau, Wind, Mond, Polarlicht, Meteore)
+- **Fototagebuch** mit Foto, Einstellungen und automatisch gespeicherten Bedingungen
+- **Sichern & Teilen:** Export/Import aller Daten als Datei, Spot-Links, Koordinaten einfügen, dauerhafter Speicher
+- **Rotlicht-Modus**, Ortssuche, GPS, Lieblingsorte, **Bortle-Klasse automatisch** aus dem Lichtverschmutzungs-Atlas
 - Funktioniert offline mit den zuletzt geladenen Daten
+
+Alle Daten bleiben auf dem Gerät (localStorage/IndexedDB) – es gibt keinen eigenen Server.
 
 ### Berücksichtigte Parameter
 
@@ -34,6 +56,13 @@ Web-App (PWA) fürs iPhone, die für deinen Standort berechnet, wie gut die Chan
 | Hellster sichtbarer Milchstraßen-Abschnitt (Sommer: Zentrum, Winter: Kassiopeia/Perseus …) | lokal berechnet |
 | Meteorströme, nächster Neumond | lokal berechnet |
 | Lichtverschmutzung (Bortle) | Atlas der künstlichen Himmelshelligkeit, D. Lorenz (VIIRS 2025) |
+| Wolkenbewertung mehrerer Modelle | Open-Meteo (ICON, ECMWF, GFS, Météo-France) |
+| Planetenpositionen & -helligkeit | lokal berechnet (JPL-Bahnelemente, Mallama-Helligkeiten) |
+| Satellitenbahnen | CelesTrak (TLE) + satellite.js (SGP4) |
+| Sonnenwind, OVATION-Polarlichtmodell | NOAA SWPC |
+| Wolken-Satellitenbild | EUMETSAT (Meteosat MTG, Infrarot 10,5 µm) |
+| Regenradar | RainViewer |
+| Beliebte Spots | OpenStreetMap (Overpass API) |
 | Karte | OpenStreetMap + Leaflet |
 | Ortsnamen | BigDataCloud, Ausweich: OSM Nominatim |
 

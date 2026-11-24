@@ -52,6 +52,43 @@ export async function fetchUpperWinds(lat, lng) {
   return toRows(j.hourly);
 }
 
+/**
+ * Mehrere Orte in einer Anfrage (Spot-Finder, Spot-Vergleich).
+ * Open-Meteo zählt jeden Ort als eigene Abfrage – daher wenige Variablen und Tage.
+ */
+export async function fetchMulti(points, days = 3) {
+  if (!points.length) return [];
+  const vars = 'cloud_cover_low,cloud_cover_mid,cloud_cover_high,precipitation_probability,relative_humidity_2m,wind_speed_10m';
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${points.map((p) => p.lat.toFixed(3)).join(',')}` +
+    `&longitude=${points.map((p) => p.lng.toFixed(3)).join(',')}&hourly=${vars}&timeformat=unixtime&forecast_days=${Math.min(8, days)}&wind_speed_unit=kmh&timezone=auto`;
+  const j = await getJSONRetry(url, 2);
+  const list = Array.isArray(j) ? j : [j];
+  return list.map((x) => ({ utcOffset: x.utc_offset_seconds || 0, hourly: toRows(x.hourly) }));
+}
+
+/** Bewölkung aus mehreren Wettermodellen – zeigt, wie sicher die Vorhersage ist. */
+export const MODELS = [
+  { id: 'icon_seamless', name: 'ICON (DWD)' },
+  { id: 'ecmwf_ifs025', name: 'ECMWF' },
+  { id: 'gfs_seamless', name: 'GFS (USA)' },
+  { id: 'meteofrance_seamless', name: 'Météo-France' },
+];
+export async function fetchModels(lat, lng) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
+    `&hourly=cloud_cover&models=${MODELS.map((m) => m.id).join(',')}&timeformat=unixtime&forecast_days=8`;
+  const j = await getJSONRetry(url, 2);
+  const h = j.hourly || {};
+  const out = {};
+  for (const m of MODELS) {
+    const arr = h[`cloud_cover_${m.id}`];
+    if (!arr || arr.every((v) => v == null)) continue;
+    const map = new Map();
+    h.time.forEach((t, i) => { if (arr[i] != null) map.set(t * 1000, arr[i]); });
+    out[m.id] = map;
+  }
+  return out;
+}
+
 export async function fetchAirQuality(lat, lng) {
   const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}` +
     `&hourly=aerosol_optical_depth,dust,pm2_5&timeformat=unixtime&forecast_days=5`;
